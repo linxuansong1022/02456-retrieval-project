@@ -1,10 +1,12 @@
-from src.data_utils.document import Document
-from src.retrievers.base_retriever import Retriever
 import numpy as np
 from scipy.sparse import lil_matrix
 
+from src.data_utils.document import Document
+from src.retrievers.base_retriever import Retriever
+
 
 class TFIDF(Retriever):
+
     def __init__(self, documents: list[dict] = None, index_path: str = None) -> None:
         super(TFIDF, self).__init__(documents, index_path)
         self.corpus_vocabulary = self.GetCorpusVocabulary()
@@ -31,7 +33,7 @@ class TFIDF(Retriever):
 
         cleaned_text = "".join(characters)
         return cleaned_text.split()
-        
+
     def GetQueryVocabulary(self, query: str) -> list[str]:
         """
         Returns all unique words in a query
@@ -52,7 +54,7 @@ class TFIDF(Retriever):
         for term in tokens:
             unique_terms.add(term)
         return sorted(unique_terms)
-    
+
     def GetCorpusVocabulary(self) -> set[str]:
         """
         Returns all unique words in ALL documents.
@@ -78,15 +80,21 @@ class TFIDF(Retriever):
                     frequencies[term] = 0
                 frequencies[term] += 1
         return frequencies
-       
-    
+
     def GetInverseDocumentFrequencies(self) -> dict[str, float]:
         """
         Returns a dict with terms and their corresponding inverse document frequencies.
+        This is defined by log(N/n_qi)
         """
-        raise NotImplementedError("Implement TF-IDF inverse document frequencies.")
-    
-    
+        idf = {}
+        frequencies = self.GetDocumentFrequencies()
+        n_documents = len(self.index.GetDocuments())
+
+        for term, frequencie in frequencies.items():
+            idf[term] = float(np.log(n_documents / frequencie))
+
+        return idf
+
     def GetDocumentTermCounts(self, document: Document):
         """
         Returns a dict on the form {term: num_occurences} for an input Document.
@@ -104,18 +112,33 @@ class TFIDF(Retriever):
         """
         Returns a n_documents x n_terms matrix whose element (i, j) is the td-idf score of the j'th term in the i'th document.
         """
-        raise NotImplementedError("Implement the TF-IDF document weight matrix.")
+        documents = self.index.GetDocuments()
+        terms = sorted(self.corpus_vocabulary)
+
+        def document_row(document):
+            counts = self.GetDocumentTermCounts(document)
+            return list(map(lambda term: counts.get(term, 0) * self.idf[term], terms))
+
+        matrix = lil_matrix(
+            list(map(document_row, documents)),
+            shape=(len(documents), len(terms)),
+            dtype=np.float32,
+        )
+
+        return matrix
 
     def QueryToVector(self, queries: list[str]):
-        """ Converts a query or batch of queries into a sparse vector matching the vocab size with counts of how many times the term occurs.
-        
+        """Converts a query or batch of queries into a sparse vector matching the vocab size with counts of how many times the term occurs.
+
         Args:
             query (str): The query to convert
-        
+
         Returns:
             csr_matrix: A sparse vector representation of the query
         """
-        query_vector = lil_matrix((len(queries), len(self.corpus_vocabulary)), dtype=np.float32)
+        query_vector = lil_matrix(
+            (len(queries), len(self.corpus_vocabulary)), dtype=np.float32
+        )
 
         for row, query in enumerate(queries):
             tokens = self.PreprocessText(query)
@@ -126,21 +149,22 @@ class TFIDF(Retriever):
 
         return query_vector.tocsr()
 
-    #@time_func
+    # @time_func
     def CalculateScores(self, queries: list[str]):
         """Calculate scores for a query
-        
+
         Args:
             query (str): The query to calculate scores for
-        
+
         Returns:
             np.array: An array of scores for each document
 
-            num_queries x num_documents where (i, j) = ∑_i TF-IDF(q_i, D_j; D) 
-        
+            num_queries x num_documents where (i, j) = ∑_i TF-IDF(q_i, D_j; D)
+
         """
         # Convert the queries to a vector
-        query_vectors = self.QueryToVector(queries) # n_queries x vocab size
-        scores = query_vectors.dot(self.tfidf_matrix.T).toarray() # n_queries x n_documents
+        query_vectors = self.QueryToVector(queries)  # n_queries x vocab size
+        scores = query_vectors.dot(
+            self.tfidf_matrix.T
+        ).toarray()  # n_queries x n_documents
         return scores
-    
