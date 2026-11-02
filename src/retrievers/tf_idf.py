@@ -1,7 +1,5 @@
 from src.data_utils.document import Document
 from src.retrievers.base_retriever import Retriever
-from collections import Counter
-import re
 import numpy as np
 from scipy.sparse import lil_matrix
 
@@ -10,7 +8,10 @@ class TFIDF(Retriever):
     def __init__(self, documents: list[dict] = None, index_path: str = None) -> None:
         super(TFIDF, self).__init__(documents, index_path)
         self.corpus_vocabulary = self.GetCorpusVocabulary()
-        self.term_to_index = {term: idx for idx, term in enumerate(sorted(self.corpus_vocabulary))}
+        self.term_to_index = {}
+        sorted_terms = sorted(self.corpus_vocabulary)
+        for column, term in enumerate(sorted_terms):
+            self.term_to_index[term] = column
 
         # Only run if we are in TFIDF class
         if type(self) == TFIDF:
@@ -21,37 +22,62 @@ class TFIDF(Retriever):
         """
         Remove unwanted charatcters from text and lowercase
         """
-        return re.findall(r"[^\W_]+", text.lower())
+        characters = []
+        for character in text.lower():
+            if character.isalnum():
+                characters.append(character)
+            else:
+                characters.append(" ")
+
+        cleaned_text = "".join(characters)
+        return cleaned_text.split()
         
     def GetQueryVocabulary(self, query: str) -> list[str]:
         """
         Returns all unique words in a query
         """
-        return sorted(set(self.PreprocessText(query)))
+        tokens = self.PreprocessText(query)
+        unique_terms = set()
+        for term in tokens:
+            unique_terms.add(term)
+        return sorted(unique_terms)
 
     def GetDocumentVocabulary(self, document: Document) -> list[str]:
         """
         Returns all unique words in a document
         """
-        return sorted(set(self.PreprocessText(document.GetText())))
+        text = document.GetText()
+        tokens = self.PreprocessText(text)
+        unique_terms = set()
+        for term in tokens:
+            unique_terms.add(term)
+        return sorted(unique_terms)
     
     def GetCorpusVocabulary(self) -> set[str]:
         """
         Returns all unique words in ALL documents.
         """
-        # Use map function for more efficient processing
-        processed_texts = map(lambda doc: set(self.PreprocessText(doc.GetText())), self.index.GetDocuments())
-        corpus_vocabulary = set().union(*processed_texts)
+        corpus_vocabulary = set()
+        documents = self.index.GetDocuments()
+        for document in documents:
+            terms = self.GetDocumentVocabulary(document)
+            for term in terms:
+                corpus_vocabulary.add(term)
         return corpus_vocabulary
 
     def GetDocumentFrequencies(self) -> dict[str, int]:
         """
         Returns a dict with terms and counts of how many documents the term occurs in (counted once per document).
         """
-        frequencies = Counter()
-        for document in self.index.GetDocuments():
-            frequencies.update(self.GetDocumentVocabulary(document))
-        return dict(frequencies)
+        frequencies = {}
+        documents = self.index.GetDocuments()
+        for document in documents:
+            unique_terms = self.GetDocumentVocabulary(document)
+            for term in unique_terms:
+                if term not in frequencies:
+                    frequencies[term] = 0
+                frequencies[term] += 1
+        return frequencies
        
     
     def GetInverseDocumentFrequencies(self) -> dict[str, float]:
@@ -65,7 +91,14 @@ class TFIDF(Retriever):
         """
         Returns a dict on the form {term: num_occurences} for an input Document.
         """
-        return dict(Counter(self.PreprocessText(document.GetText())))
+        text = document.GetText()
+        tokens = self.PreprocessText(text)
+        counts = {}
+        for term in tokens:
+            if term not in counts:
+                counts[term] = 0
+            counts[term] += 1
+        return counts
 
     def GetDocumentsTFIDFVectors(self):
         """
@@ -85,9 +118,11 @@ class TFIDF(Retriever):
         query_vector = lil_matrix((len(queries), len(self.corpus_vocabulary)), dtype=np.float32)
 
         for row, query in enumerate(queries):
-            for term, count in Counter(self.PreprocessText(query)).items():
+            tokens = self.PreprocessText(query)
+            for term in tokens:
                 if term in self.term_to_index:
-                    query_vector[row, self.term_to_index[term]] = count
+                    column = self.term_to_index[term]
+                    query_vector[row, column] += 1
 
         return query_vector.tocsr()
 
