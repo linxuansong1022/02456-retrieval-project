@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Retrieval Project — Work Plan</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #183047; background: #f3f6fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.6; }
+    main { max-width: 1060px; margin: auto; padding: 48px 24px; }
+    .label { color: #356a88; font-weight: 700; letter-spacing: .08em; font-size: .8rem; text-transform: uppercase; }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.15; margin: 12px 0; }
+    h2 { font-size: 1.3rem; margin-top: 0; }
+    h3 { font-size: 1rem; margin-bottom: 6px; }
+    .intro { max-width: 680px; color: #42596c; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 28px 0; }
+    article, section { background: white; border: 1px solid #dce4ed; border-radius: 14px; padding: 24px; }
+    article { border-top: 4px solid #287994; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 7px 0; }
+    code { background: #edf3f7; border-radius: 4px; padding: 2px 5px; overflow-wrap: anywhere; }
+    section + section { margin-top: 20px; }
+    .result { border-top: 1px solid #e3eaf0; padding-top: 12px; }
+    footer { color: #526577; font-size: .85rem; margin-top: 24px; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } main { padding: 28px 16px; } }
+    @media print { body { background: white; } main { padding: 0; } article, section { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="label">02456 · Retrieval Project</div>
+    <h1>Four people. One work plan.</h1>
+    <p class="intro">Each person owns one part of the system. Agree on the interfaces first. Then develop each part separately.</p>
+  </header>
+
+  <section aria-labelledby="shared-title">
+    <h2 id="shared-title">Start together</h2>
+    <ol>
+      <li>Use the existing FiQA data splits: 5,500 training questions, 500 validation questions, and 648 test questions.</li>
+      <li>Use the same document IDs and relevance labels for all retrieval methods.</li>
+      <li>Agree on the encoder input and output formats.</li>
+      <li>Agree on the model checkpoint format.</li>
+      <li>Prepare a small test corpus with known relevant documents.</li>
+    </ol>
+    <p>Train DPR with training questions and their relevance labels only. Use validation results to select settings. Use test results for the final comparison.</p>
+  </section>
+
+  <div class="grid">
+    <article aria-labelledby="a-title">
+      <div class="label">Person A</div>
+      <h2 id="a-title">Data and lexical retrieval</h2>
+      <ul>
+        <li>Check the FiQA data loader.</li>
+        <li>Repair the relevance mapping for old data caches.</li>
+        <li>Use one document ID for each unique passage.</li>
+        <li>Implement TF-IDF and BM25.</li>
+        <li>Compare the BM25 parameter settings.</li>
+      </ul>
+      <h3>Main files</h3>
+      <p><code>src/data_utils/</code><br><code>tf_idf.py</code> and <code>bm25.py</code></p>
+      <p class="result"><strong>Check:</strong> Calculate scores manually for a small corpus. Compare these scores with the program output.</p>
+    </article>
+
+    <article aria-labelledby="b-title">
+      <div class="label">Person B</div>
+      <h2 id="b-title">Encoder and attention</h2>
+      <ul>
+        <li>Implement the required Transformer components.</li>
+        <li>Implement the padding mask.</li>
+        <li>Implement CLS, mean, and max pooling.</li>
+        <li>Make attention maps available for inspection.</li>
+        <li>Explain the attention maps for selected examples.</li>
+      </ul>
+      <h3>Main files</h3>
+      <p><code>src/retrievers/models/encoder.py</code><br>A new attention visualization script</p>
+      <p class="result"><strong>Check:</strong> Use artificial token inputs. Check output shapes, padding behavior, and gradients.</p>
+    </article>
+
+    <article aria-labelledby="c-title">
+      <div class="label">Person C</div>
+      <h2 id="c-title">DPR training</h2>
+      <ul>
+        <li>Prepare paired questions and relevant documents.</li>
+        <li>Implement tokenization and training batches.</li>
+        <li>Implement the contrastive loss.</li>
+        <li>Implement training and validation.</li>
+        <li>Save model checkpoints and training settings.</li>
+      </ul>
+      <h3>Main files</h3>
+      <p><code>src/training/</code><br>New training data and training entry files</p>
+      <p class="result"><strong>Check:</strong> Start with a small temporary encoder. Check that training reduces the loss on a small sample.</p>
+    </article>
+
+    <article aria-labelledby="d-title">
+      <div class="label">Person D</div>
+      <h2 id="d-title">Vector search and evaluation</h2>
+      <ul>
+        <li>Load the trained encoders.</li>
+        <li>Encode documents and build a vector index.</li>
+        <li>Implement dense retrieval.</li>
+        <li>Implement Precision@k, Recall@k, and MRR@k.</li>
+        <li>Connect the methods to the main program.</li>
+        <li>Compare retrieval quality and search time.</li>
+      </ul>
+      <h3>Main files</h3>
+      <p><code>dpr.py</code>, <code>metrics.py</code>, <code>utils.py</code><br><code>main.py</code> and experiment configuration</p>
+      <p class="result"><strong>Check:</strong> Use artificial vectors for search. Use known document rankings to check the metrics.</p>
+    </article>
+  </div>
+
+  <section aria-labelledby="interface-title">
+    <h2 id="interface-title">Use these interface rules</h2>
+    <ul>
+      <li>The encoder receives token IDs and an attention mask.</li>
+      <li>The encoder returns one vector for each input text: <code>[batch_size, embedding_dim]</code>.</li>
+      <li>Each retrieval method receives question texts and a value for <code>k</code>.</li>
+      <li>Each retrieval method returns document IDs and scores for each question.</li>
+      <li>Sort results from the highest score to the lowest score.</li>
+      <li>Person C saves both encoders and the tokenizer settings. Person D uses these files for retrieval.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="steps-title">
+    <h2 id="steps-title">Connect the parts in three steps</h2>
+    <ol>
+      <li><strong>Check each part.</strong> Use the shared sample data and artificial inputs.</li>
+      <li><strong>Run a small experiment.</strong> Connect the encoder, training code, vector index, and evaluation code.</li>
+      <li><strong>Run the final experiments.</strong> Use the same evaluation settings for all methods.</li>
+    </ol>
+    <p>Give each file one owner. Use separate Git branches. Each person writes the report section for that person's work.</p>
+    <p>All four people review the final results and explain the complete retrieval process.</p>
+  </section>
+
+  <footer>This page follows ASD-STE100 writing principles. Full compliance with the official dictionary and rules has not been verified.</footer>
+</main>
+</body>
+</html>
