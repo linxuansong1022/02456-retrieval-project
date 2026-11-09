@@ -8,15 +8,32 @@ import torch.nn.functional as F
 class PositionalEncoding(nn.Module):
     # adapted from 02456-2026 "Week6 Transformers/6.1 Deep Learning with Transformers.ipynb", cell 44 (PositionalEncoding)
     def __init__(self, emb_dim: int, max_len: int, dropout: float = 0.1):
-        super().__init__()
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, emb_dim)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, emb_dim, 2) * -(math.log(10000.0) / emb_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        x = x + self.pe[:, :x.size(1)]
+        return self.dropout(x)
 
 
 def attention(q, k, v, mask=None, dropout=None):
     # adapted from 02456-2026 "Week6 Transformers/6.1 Deep Learning with Transformers.ipynb", cell 46 (attention)
-    raise NotImplementedError()
+    d_k = q.size(-1)
+    scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, -1e9)
+    p_attn = F.softmax(scores, dim=-1)
+    if dropout is not None:
+        p_attn = dropout(p_attn)
+    return torch.matmul(p_attn, v), p_attn
 
 
 class MultiHeadAttention(nn.Module):
