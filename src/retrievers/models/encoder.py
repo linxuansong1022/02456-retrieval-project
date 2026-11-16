@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from src.retrievers.models.pooling import cls_pooling, mean_pooling, max_pooling
 
 
 class PositionalEncoding(nn.Module):
@@ -57,9 +58,17 @@ class LayerNorm(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, emb_dim: int, feed_forward_dim: int, dropout: float = 0.1):
         super().__init__()
+        self.linear1 = nn.Linear(emb_dim, feed_forward_dim)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(feed_forward_dim, emb_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        x = self.linear1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.linear2(x)
+        return x
 
 
 class EncoderLayer(nn.Module):
@@ -74,6 +83,7 @@ class TransformerEncoder(nn.Module):
     def __init__(self, vocab_size: int, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int,
                  feed_forward_dim: int, pooling_type: str = "cls", max_len: int = 512, dropout: float = 0.1):
         super().__init__()
+        self.pooling_type = pooling_type
         self.setup_model()
 
     def setup_model(self):
@@ -81,12 +91,11 @@ class TransformerEncoder(nn.Module):
 
     def pool(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         if self.pooling_type == "cls":
-            raise NotImplementedError()
+            return cls_pooling(x)
         elif self.pooling_type == "mean":
-            raise NotImplementedError()
+            return mean_pooling(x, attention_mask)
         elif self.pooling_type == "max":
-            raise NotImplementedError()
-        raise ValueError(f"unknown pooling_type {self.pooling_type}")
+            return max_pooling(x, attention_mask)
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
