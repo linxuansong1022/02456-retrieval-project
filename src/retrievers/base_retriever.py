@@ -1,5 +1,6 @@
 import os
 import pickle
+import numpy as np
 from abc import ABC, abstractmethod
 from src.data_utils.dataset import DocumentDataset
 
@@ -46,6 +47,13 @@ class Retriever(ABC):
         @param queries: The input text(s) to which relevant passages should be found.
         @param k: The number of relevant passages to retrieve for each input query.
         """
-        scores = self.CalculateScores(queries)
-        ranked_documents = [[d for _, d in sorted(zip(query_scores, self.index.GetDocuments()), key=lambda pair: pair[0], reverse=True)] for query_scores in scores]
-        return [ranked_document[:min(k, len(ranked_documents[0]))] for ranked_document in ranked_documents]
+        documents = self.index.GetDocuments()
+        k = min(k, len(documents))
+        results = []
+        for start in range(0, len(queries), 1000):
+            scores = np.asarray(self.CalculateScores(queries[start:start + 1000]))
+            top = np.argpartition(-scores, k - 1, axis=1)[:, :k]
+            order = np.argsort(-np.take_along_axis(scores, top, axis=1), axis=1)
+            top = np.take_along_axis(top, order, axis=1)
+            results.extend([documents[i] for i in row] for row in top)
+        return results

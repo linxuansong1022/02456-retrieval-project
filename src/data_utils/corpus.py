@@ -41,19 +41,16 @@ class Corpus:
 
     @property
     def all_documents(self):
-        train_text, train_ids = list(self.train['text']), list(self.train['document_id'])
-        val_text, val_ids =     list(self.val['text']), list(self.val['document_id'])
-        
-        all_text = train_text + val_text
-        all_ids = train_ids   + val_ids
+        documents = {}
+        for split in (self.train, self.val, self.test):
+            if split is None:
+                continue
+            for texts, ids in zip(split['text'], split['document_id']):
+                for text, doc_id in zip(texts, ids):
+                    documents.setdefault(doc_id, text)
 
-        if self.test is not None:
-            test_text, test_ids = list(self.test['text']), list(self.test['document_id'])
-            all_text += test_text
-            all_ids  += test_ids
-
-        return Dataset.from_dict({'text': all_text,
-                                  'document_id': all_ids})
+        return Dataset.from_dict({'text': [[text] for text in documents.values()],
+                                  'document_id': [[doc_id] for doc_id in documents]})
 
 
     def __load_data(self, base_dir) -> dict[Dataset]:
@@ -64,6 +61,11 @@ class Corpus:
 
         elif self.dataset_name == 'squad':
             ds = get_squad_dataset(base_dir)
+            titles = sorted(set(ds['train']['title']))
+            val_titles = set(titles[::10])
+            return {'train': ds['train'].filter(lambda title: title not in val_titles, input_columns='title'),
+                    'validation': ds['train'].filter(lambda title: title in val_titles, input_columns='title'),
+                    'test': ds['validation']}
 
         return {key: ds[key] for key in ds.keys()}
 
@@ -74,24 +76,26 @@ class Corpus:
         
         for key in self.ds:
             self.ds[key] = self.ds[key].rename_column(column_mapping[self.dataset_name], 'text')
+            if self.dataset_name == 'squad':
+                self.ds[key] = self.ds[key].map(lambda row: {'text': [row['text']]})
         return self.ds
 
     def __assign_ids(self):
         q_id_counter = 0
-        doc_id_counter = 0
+        text_to_id = {}
         relevant_document_ids = {}
 
         for key in self.ds:
             query_ids = []
             document_ids = []
-            for i in range(len(self.ds[key])):
+            for documents in self.ds[key]['text']:
                 query_ids.append(f'q{q_id_counter}')
-                documents = self.ds[key]['text'][i]
                 relevant_ids = []
                 for doc in documents:
-                    relevant_ids.append(f'doc{doc_id_counter}')
-                    doc_id_counter += 1
-                
+                    if doc not in text_to_id:
+                        text_to_id[doc] = f'doc{len(text_to_id)}'
+                    relevant_ids.append(text_to_id[doc])
+
                 document_ids.append(relevant_ids)
                 
                 relevant_document_ids[f'q{q_id_counter}'] = relevant_ids

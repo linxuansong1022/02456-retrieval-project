@@ -113,19 +113,17 @@ class TFIDF(Retriever):
         Returns a n_documents x n_terms matrix whose element (i, j) is the td-idf score of the j'th term in the i'th document.
         """
         documents = self.index.GetDocuments()
-        terms = sorted(self.corpus_vocabulary)
+        matrix = lil_matrix((len(documents), len(self.term_to_index)), dtype=np.float32)
 
-        def document_row(document):
+        for row, document in enumerate(documents):
             counts = self.GetDocumentTermCounts(document)
-            return list(map(lambda term: counts.get(term, 0) * self.idf[term], terms))
+            if not counts:
+                continue
+            max_count = max(counts.values())
+            for term, count in counts.items():
+                matrix[row, self.term_to_index[term]] = count / max_count * self.idf[term]
 
-        matrix = lil_matrix(
-            list(map(document_row, documents)),
-            shape=(len(documents), len(terms)),
-            dtype=np.float32,
-        )
-
-        return matrix
+        return matrix.tocsr()
 
     def QueryToVector(self, queries: list[str]):
         """Converts a query or batch of queries into a sparse vector matching the vocab size with counts of how many times the term occurs.
