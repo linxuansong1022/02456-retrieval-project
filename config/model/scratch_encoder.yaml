@@ -1,0 +1,8 @@
+tower: scratch
+pooling_type: cls
+emb_dim: 128
+hidden_dim: 32
+n_heads: 4
+n_layers: 6
+feed_forward_dim: 768
+dropout: 0.1
