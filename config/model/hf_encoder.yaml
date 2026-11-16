@@ -1,0 +1,4 @@
+tower: hf
+model_name: bert-base-uncased
+pooling_type: cls
+freeze: false

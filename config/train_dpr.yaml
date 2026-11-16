@@ -1,0 +1,36 @@
+defaults:
+  - _self_
+  - model: hf_encoder
+
+dataset:
+  name: fiqa
+
+device: auto
+base_path: "."
+tokenizer_name: bert-base-uncased
+
+train:
+  epochs: 3
+  batch_size: 32
+  lr: 2e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  temperature: 1.0
+  normalize: true
+  grad_clip: 1.0
+  seed: 0
+  log_every: 50
+  query_max_len: 64
+  passage_max_len: 256
+
+eval:
+  k: [1, 5, 10, 20]
+  batch_size: 128
+
+overfit: 0
+limit_pairs: 0
+output_dir: checkpoints
+
+hydra:
+  run:
+    dir: ${output_dir}/.hydra
