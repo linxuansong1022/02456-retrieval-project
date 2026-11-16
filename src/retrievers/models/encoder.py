@@ -41,18 +41,35 @@ class MultiHeadAttention(nn.Module):
     # adapted from 02456-2026 "Week6 Transformers/6.1 Deep Learning with Transformers.ipynb", cell 47 (MultiHeadedAttention)
     def __init__(self, emb_dim: int, n_heads: int, dropout: float = 0.1):
         super().__init__()
+        assert emb_dim % n_heads == 0
+        self.d_k = emb_dim // n_heads
+        self.n_heads = n_heads
+        self.linears = nn.ModuleList([nn.Linear(emb_dim, emb_dim) for _ in range(4)])
         self.attn = None
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        batch_size = x.size(0)
+        if mask is not None:
+            mask = mask[:, None, None, :]
+        query, key, value = [linear(x).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
+                             for linear in self.linears[:3]]
+        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.d_k)
+        return self.linears[-1](x)
 
 
 class LayerNorm(nn.Module):
     def __init__(self, emb_dim: int, eps: float = 1e-5):
         super().__init__()
+        self.gamma = nn.Parameter(torch.ones(emb_dim))
+        self.beta = nn.Parameter(torch.zeros(emb_dim))
+        self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        mean = x.mean(dim=-1, keepdim=True)
+        var = x.var(dim=-1, keepdim=True, unbiased=False)
+        return self.gamma * (x - mean) / torch.sqrt(var + self.eps) + self.beta
 
 
 class FeedForward(nn.Module):
@@ -74,20 +91,37 @@ class FeedForward(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self, emb_dim: int, n_heads: int, feed_forward_dim: int, dropout: float = 0.1):
         super().__init__()
+        self.self_attn = MultiHeadAttention(emb_dim, n_heads, dropout)
+        self.feed_forward = FeedForward(emb_dim, feed_forward_dim, dropout)
+        self.norm1 = LayerNorm(emb_dim)
+        self.norm2 = LayerNorm(emb_dim)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        x = x + self.dropout(self.self_attn(self.norm1(x), mask))
+        return x + self.dropout(self.feed_forward(self.norm2(x)))
 
 
 class TransformerEncoder(nn.Module):
     def __init__(self, vocab_size: int, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int,
                  feed_forward_dim: int, pooling_type: str = "cls", max_len: int = 512, dropout: float = 0.1):
         super().__init__()
+        self.vocab_size = vocab_size
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.emb_dim = emb_dim
+        self.feed_forward_dim = feed_forward_dim
+        self.max_len = max_len
+        self.dropout = dropout
         self.pooling_type = pooling_type
         self.setup_model()
 
     def setup_model(self):
-        raise NotImplementedError()
+        self.embedding = nn.Embedding(self.vocab_size, self.emb_dim)
+        self.positional_encoding = PositionalEncoding(self.emb_dim, self.max_len, self.dropout)
+        self.layers = nn.ModuleList([EncoderLayer(self.emb_dim, self.n_heads, self.feed_forward_dim, self.dropout)
+                                     for _ in range(self.n_layers)])
+        self.norm = LayerNorm(self.emb_dim)
 
     def pool(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         if self.pooling_type == "cls":
@@ -98,7 +132,10 @@ class TransformerEncoder(nn.Module):
             return max_pooling(x, attention_mask)
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        x = self.positional_encoding(self.embedding(input_ids) * math.sqrt(self.emb_dim))
+        for layer in self.layers:
+            x = layer(x, attention_mask)
+        return self.pool(self.norm(x), attention_mask)
 
     def attention_maps(self) -> list:
         raise NotImplementedError()
