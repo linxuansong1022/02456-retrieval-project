@@ -68,8 +68,11 @@ def test_hf_builds_two_distinct_modules(monkeypatch):
     assert query_encoder.model_name == "bert-base-uncased"
 
 
-def test_scratch_raises_named_error():
-    # TransformerEncoder still raises NotImplementedError, so the error must name encoder.py
+def test_scratch_raises_named_error(monkeypatch):
+    def unimplemented_encoder(**kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(build_mod, "TransformerEncoder", unimplemented_encoder)
     with pytest.raises(RuntimeError) as exc:
         build_towers(_scratch_cfg(), tokenizer=_FakeTokenizer())
     assert "src/retrievers/models/encoder.py" in str(exc.value)

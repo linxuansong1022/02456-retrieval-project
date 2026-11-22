@@ -36,7 +36,7 @@ from src.training.trainer import Trainer
 # Hydra 1.3 passes a non-str help value that Python 3.14's argparse rejects.
 import argparse
 
-if not hasattr(argparse.ArgumentParser, "_hydra_py314_shim"):
+if hasattr(argparse.ArgumentParser, "_check_help") and not hasattr(argparse.ArgumentParser, "_hydra_py314_shim"):
     _original_check_help = argparse.ArgumentParser._check_help
 
     def _check_help(self, action):
@@ -121,7 +121,7 @@ def main(cfg: DictConfig) -> None:
     documents = documents_from_corpus(corpus)
 
     def val_fn():
-        return trainer.evaluate_recall(
+        return trainer.evaluate_metrics(
             val_queries, documents, k=tuple(cfg.eval.k), batch_size=cfg.eval.batch_size
         )
 
@@ -173,7 +173,9 @@ def main(cfg: DictConfig) -> None:
     print(f"epochs: {cfg.train.epochs}")
     print(f"final loss: {final_train_loss:.6f}")
     if val is not None:
-        print("recall@1/5/10/20: " + "/".join(f"{val[k]:.4f}" for k in (1, 5, 10, 20)))
+        cutoffs = "/".join(str(k) for k in cfg.eval.k)
+        for metric, scores in val.items():
+            print(f"{metric}@{cutoffs}: " + "/".join(f"{scores[k]:.4f}" for k in cfg.eval.k))
     print(f"seconds: {wall:.1f}")
     print(f"checkpoint: {checkpoint_dir}")
     print("=" * 60)

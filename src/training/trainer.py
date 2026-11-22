@@ -16,7 +16,7 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 
 from src.data_utils.query import Query
-from src.evaluation.metrics import calculateRecall
+from src.evaluation.metrics import Evaluate
 from src.retrievers.models.hf_encoder import HFEncoder
 from src.training.loss import DPRLoss
 
@@ -194,13 +194,30 @@ class Trainer:
         k: tuple = (1, 5, 10, 20),
         batch_size: int = 128,
     ) -> dict[int, float]:
-        """Return recall@k for queries ranked against documents.
+        """Return recall@k, retaining the original recall-only interface."""
+        return self.evaluate_metrics(queries, documents, k=k, batch_size=batch_size)["recall"]
+
+    def evaluate_metrics(
+        self,
+        queries: list[tuple],
+        documents: list[tuple[str, str]],
+        k: tuple = (1, 5, 10, 20),
+        batch_size: int = 128,
+    ) -> dict[str, dict[int, float]]:
+        """Return {"recall": {k: score}, "mrr": {k: score}} from one ranking pass.
 
         ``queries`` holds ``(query_id, query_text, relevant_document_ids)``
         tuples and ``documents`` holds ``(document_id, text)`` tuples.
+        MRR@k counts only the first relevant result within the top k.
         """
+        if not k or any(kk <= 0 for kk in k):
+            raise ValueError("k must contain positive cutoffs")
         if self.tokenizer is None:
-            raise RuntimeError("tokenizer not set; call set_tokenizer before evaluate_recall")
+            raise RuntimeError("tokenizer not set; call set_tokenizer before evaluation")
+
+        results = {metric: {kk: 0.0 for kk in k} for metric in ("recall", "mrr")}
+        if not queries or not documents:
+            return results
 
         self.query_encoder.eval()
         self.document_encoder.eval()
@@ -219,15 +236,15 @@ class Trainer:
         top = min(max(k), scores.shape[1])
         topk_indices = scores.topk(top, dim=1).indices  # (n_queries, top)
 
-        results: dict[int, float] = {}
         for kk in k:
-            per_query = []
+            relevancies = []
             width = min(kk, top)
             for i, query_obj in enumerate(query_objs):
                 ranked_ids = [document_ids[j] for j in topk_indices[i, :width].tolist()]
-                relevancies = [doc_id in query_obj.relevant_document_ids for doc_id in ranked_ids]
-                per_query.append(calculateRecall(relevancies, query_obj))
-            results[kk] = sum(per_query) / len(per_query) if per_query else 0.0
+                relevancies.append([doc_id in query_obj.relevant_document_ids for doc_id in ranked_ids])
+            metrics = Evaluate(relevancies, query_objs)
+            for metric, value in metrics.items():
+                results[metric][kk] = value
         return results
 
     def save_checkpoint(self, dir: str, meta: dict | None = None) -> str:

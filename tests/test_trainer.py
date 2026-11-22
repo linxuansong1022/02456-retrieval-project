@@ -1,6 +1,7 @@
 """Tests for the Trainer: loss reduction, recall, checkpoint round-trip, non-finite."""
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -106,6 +107,52 @@ def test_evaluate_recall_perfect():
     result = trainer.evaluate_recall(queries, documents, k=(1, 5), batch_size=2)
     assert result[1] == 1.0
     assert result[5] == 1.0
+
+
+def test_evaluate_metrics_respects_rank_cutoffs_and_averages_misses(monkeypatch):
+    trainer = Trainer(ToyTower(8, 2, 2), ToyTower(8, 2, 2))
+    trainer.set_tokenizer(make_tiny_tokenizer())
+    encode_calls = []
+
+    def encode(encoder, texts, max_len, batch_size):
+        encode_calls.append(encoder)
+        if encoder is trainer.document_encoder:
+            return torch.tensor([[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]])
+        return torch.tensor([[1.0, 0.0]]).repeat(len(texts), 1)
+
+    monkeypatch.setattr(trainer, "_encode_texts", encode)
+    queries = [
+        ("q0", "first relevant at rank 2", ["d1"]),
+        ("q1", "two relevant results", ["d1", "d2"]),
+        ("q2", "no relevant result", ["missing"]),
+    ]
+    documents = [("d0", "first"), ("d1", "second"), ("d2", "third")]
+    result = trainer.evaluate_metrics(queries, documents, k=(1, 2, 5))
+
+    assert result["mrr"] == pytest.approx({1: 0.0, 2: 1 / 3, 5: 1 / 3})
+    assert result["recall"] == pytest.approx({1: 0.0, 2: 0.5, 5: 2 / 3})
+    assert encode_calls == [trainer.document_encoder, trainer.query_encoder]
+    assert trainer.evaluate_recall(queries, documents, k=(1, 2, 5)) == result["recall"]
+
+
+@pytest.mark.parametrize(("queries", "documents"), [([], [("d", "text")]), ([("q", "text", ["d"])], [])])
+def test_evaluate_metrics_empty_inputs(queries, documents):
+    tower = ToyTower(8, 2, 2)
+    trainer = Trainer(tower, tower)
+    trainer.set_tokenizer(make_tiny_tokenizer())
+    assert trainer.evaluate_metrics(queries, documents, k=(1, 5)) == {
+        "recall": {1: 0.0, 5: 0.0},
+        "mrr": {1: 0.0, 5: 0.0},
+    }
+
+
+@pytest.mark.parametrize("cutoffs", [(), (0,), (-1,), (1, 0)])
+def test_evaluate_metrics_rejects_non_positive_cutoffs(cutoffs):
+    tower = ToyTower(8, 2, 2)
+    trainer = Trainer(tower, tower)
+    trainer.set_tokenizer(make_tiny_tokenizer())
+    with pytest.raises(ValueError, match="positive cutoffs"):
+        trainer.evaluate_metrics([], [], k=cutoffs)
 
 
 def test_non_finite_loss_raises():
