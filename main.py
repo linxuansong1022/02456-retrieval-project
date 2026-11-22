@@ -50,9 +50,9 @@ def main(cfg):
     test_relevancies = retrieveQueryAndGetRelevancies(retriever, test_queries, k=cfg.top_k)
 
     ### Evaluate
-    train_scores = Evaluate(train_relevancies, train_queries)
-    val_scores = Evaluate(val_relevancies, val_queries)
-    test_scores = Evaluate(test_relevancies, test_queries)
+    train_scores = Evaluate(train_relevancies, train_queries, k=cfg.top_k)
+    val_scores = Evaluate(val_relevancies, val_queries, k=cfg.top_k)
+    test_scores = Evaluate(test_relevancies, test_queries, k=cfg.top_k)
 
     print(f'Train results: {train_scores}')
     print(f'Val results: {val_scores}')
