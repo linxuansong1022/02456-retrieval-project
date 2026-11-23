@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.retrievers.models.pooling import cls_pooling, mean_pooling, max_pooling
+from src.retrievers.models.pooling import pool
 
 
 class PositionalEncoding(nn.Module):
@@ -30,11 +30,10 @@ def attention(q, k, v, mask=None, dropout=None):
     d_k = q.size(-1)
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is not None:
-        scores = scores.masked_fill(mask == 0, -1e9)
+        scores = scores.masked_fill(mask == 0, torch.finfo(scores.dtype).min)
     p_attn = F.softmax(scores, dim=-1)
-    if dropout is not None:
-        p_attn = dropout(p_attn)
-    return torch.matmul(p_attn, v), p_attn
+    weights = p_attn if dropout is None else dropout(p_attn)
+    return torch.matmul(weights, v), p_attn
 
 
 class MultiHeadAttention(nn.Module):
@@ -54,7 +53,8 @@ class MultiHeadAttention(nn.Module):
             mask = mask[:, None, None, :]
         query, key, value = [linear(x).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
                              for linear in self.linears[:3]]
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x, attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        self.attn = attn.detach()
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.d_k)
         return self.linears[-1](x)
 
@@ -103,8 +103,8 @@ class EncoderLayer(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, vocab_size: int, n_layers: int, n_heads: int, emb_dim: int, hidden_dim: int,
-                 feed_forward_dim: int, pooling_type: str = "cls", max_len: int = 512, dropout: float = 0.1):
+    def __init__(self, vocab_size: int, n_layers: int, n_heads: int, emb_dim: int, feed_forward_dim: int,
+                 pooling_type: str = "cls", max_len: int = 512, dropout: float = 0.1):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_layers = n_layers
@@ -123,13 +123,12 @@ class TransformerEncoder(nn.Module):
                                      for _ in range(self.n_layers)])
         self.norm = LayerNorm(self.emb_dim)
 
+    @property
+    def embedding_dim(self) -> int:
+        return self.emb_dim
+
     def pool(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        if self.pooling_type == "cls":
-            return cls_pooling(x)
-        elif self.pooling_type == "mean":
-            return mean_pooling(x, attention_mask)
-        elif self.pooling_type == "max":
-            return max_pooling(x, attention_mask)
+        return pool(x, attention_mask, self.pooling_type)
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         x = self.positional_encoding(self.embedding(input_ids) * math.sqrt(self.emb_dim))
@@ -138,4 +137,5 @@ class TransformerEncoder(nn.Module):
         return self.pool(self.norm(x), attention_mask)
 
     def attention_maps(self) -> list:
-        raise NotImplementedError()
+        # one (B, heads, T, T) tensor per layer, from the last forward pass
+        return [layer.self_attn.attn for layer in self.layers]

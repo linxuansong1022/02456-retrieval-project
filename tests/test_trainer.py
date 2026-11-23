@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from src.data_utils.query import Query
+from src.training.build import load_towers
 from src.training.pairs import Pair, PairCollator, PairDataset
 from src.training.trainer import Trainer
 from tests.tokenizer_util import make_tiny_tokenizer
@@ -73,10 +75,10 @@ def test_save_load_roundtrip(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.training.trainer.HFEncoder",
+        "src.training.build.HFEncoder",
         lambda model_name, pooling_type, **kw: ToyTower(vocab_size, emb_dim, out_dim),
     )
-    query_loaded, document_loaded, meta, tokenizer = trainer.load_checkpoint(str(tmp_path), tower="hf", device="cpu")
+    query_loaded, document_loaded, meta, tokenizer = load_towers(str(tmp_path), device="cpu")
 
     ids = torch.randint(0, vocab_size, (5, 8))
     mask = torch.ones(5, 8, dtype=torch.long)
@@ -89,7 +91,7 @@ def test_save_load_roundtrip(tmp_path, monkeypatch):
     assert meta["model_name"] == "bert-base-uncased"
 
 
-def test_evaluate_recall_perfect():
+def test_evaluate_perfect():
     torch.manual_seed(0)
     tokenizer = make_tiny_tokenizer(tuple(f"tok{i}" for i in range(3)))
     shared = ToyTower(len(tokenizer), 16, 16)
@@ -99,13 +101,14 @@ def test_evaluate_recall_perfect():
     # Each query's relevant document carries the same text as the query, and the
     # same tower encodes both, so the relevant document scores exactly 1.0.
     queries = [
-        ("q0", "tok0", ["d0"]),
-        ("q1", "tok1", ["d1"]),
+        Query("tok0", id="q0", relevant_document_ids=["d0"]),
+        Query("tok1", id="q1", relevant_document_ids=["d1"]),
     ]
-    documents = [("d0", "tok0"), ("d1", "tok1"), ("d2", "tok2")]
-    result = trainer.evaluate_recall(queries, documents, k=(1, 5), batch_size=2)
-    assert result[1] == 1.0
-    assert result[5] == 1.0
+    documents = [{"text": ["tok0", "tok1", "tok2"], "document_id": ["d0", "d1", "d2"]}]
+    result = trainer.evaluate(queries, documents, k=(1, 5), batch_size=2)
+    assert result[1]["recall"] == 1.0
+    assert result[1]["mrr"] == 1.0
+    assert result[5]["recall"] == 1.0
 
 
 def test_non_finite_loss_raises():

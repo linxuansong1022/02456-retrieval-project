@@ -18,7 +18,6 @@ def _hf_cfg():
             pooling_type="cls",
             freeze=False,
             emb_dim=128,
-            hidden_dim=32,
             n_heads=4,
             n_layers=6,
             feed_forward_dim=768,
@@ -32,7 +31,6 @@ def _scratch_cfg():
         model=SimpleNamespace(
             tower="scratch",
             emb_dim=128,
-            hidden_dim=32,
             n_heads=4,
             n_layers=6,
             feed_forward_dim=768,
@@ -66,13 +64,6 @@ def test_hf_builds_two_distinct_modules(monkeypatch):
     assert isinstance(document_encoder, FakeHF)
     assert query_encoder is not document_encoder
     assert query_encoder.model_name == "bert-base-uncased"
-
-
-def test_scratch_raises_named_error():
-    # TransformerEncoder still raises NotImplementedError, so the error must name encoder.py
-    with pytest.raises(RuntimeError) as exc:
-        build_towers(_scratch_cfg(), tokenizer=_FakeTokenizer())
-    assert "src/retrievers/models/encoder.py" in str(exc.value)
 
 
 def test_scratch_success_with_stub(monkeypatch):

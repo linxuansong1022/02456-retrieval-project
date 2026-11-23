@@ -1,1 +1,3 @@
 method: "dpr"
+checkpoint_dir: "checkpoints/hf_cls"
+batch_size: 128

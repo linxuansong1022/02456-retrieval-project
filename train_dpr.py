@@ -28,7 +28,6 @@ from src.training.pairs import (
     PairCollator,
     PairDataset,
     build_tokenizer,
-    documents_from_corpus,
     pairs_from_corpus,
 )
 from src.training.trainer import Trainer
@@ -36,7 +35,7 @@ from src.training.trainer import Trainer
 # Hydra 1.3 passes a non-str help value that Python 3.14's argparse rejects.
 import argparse
 
-if not hasattr(argparse.ArgumentParser, "_hydra_py314_shim"):
+if hasattr(argparse.ArgumentParser, "_check_help") and not hasattr(argparse.ArgumentParser, "_hydra_py314_shim"):
     _original_check_help = argparse.ArgumentParser._check_help
 
     def _check_help(self, action):
@@ -57,7 +56,9 @@ def _git_commit() -> str | None:
 
 def _resolve_device(device_cfg: str) -> str:
     if device_cfg == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "mps" if torch.backends.mps.is_available() else "cpu"
     return device_cfg
 
 
@@ -74,6 +75,7 @@ def main(cfg: DictConfig) -> None:
         pairs = pairs[: cfg.overfit]
 
     tokenizer = build_tokenizer(cfg.tokenizer_name)
+    torch.manual_seed(cfg.train.seed)
     query_encoder, document_encoder = build_towers(cfg, tokenizer)
 
     dataset = PairDataset(pairs)
@@ -110,18 +112,11 @@ def main(cfg: DictConfig) -> None:
         passage_max_len=cfg.train.passage_max_len,
     )
 
-    val_queries = [
-        (
-            corpus.val["query_id"][i],
-            corpus.val["question"][i],
-            corpus.relevant_ids[corpus.val["query_id"][i]],
-        )
-        for i in range(corpus.val.num_rows)
-    ]
-    documents = documents_from_corpus(corpus)
+    val_queries = corpus.queries("val")
+    documents = corpus.all_documents
 
     def val_fn():
-        return trainer.evaluate_recall(
+        return trainer.evaluate(
             val_queries, documents, k=tuple(cfg.eval.k), batch_size=cfg.eval.batch_size
         )
 
@@ -144,6 +139,7 @@ def main(cfg: DictConfig) -> None:
         checkpoint_dir,
         meta={
             "tower": tower,
+            "model": OmegaConf.to_container(cfg.model, resolve=True),
             "model_name": cfg.model.get("model_name", None) or cfg.tokenizer_name,
             "pooling_type": pooling_type,
             "embedding_dim": getattr(query_encoder, "embedding_dim", None),
@@ -173,7 +169,8 @@ def main(cfg: DictConfig) -> None:
     print(f"epochs: {cfg.train.epochs}")
     print(f"final loss: {final_train_loss:.6f}")
     if val is not None:
-        print("recall@1/5/10/20: " + "/".join(f"{val[k]:.4f}" for k in (1, 5, 10, 20)))
+        for k, scores in val.items():
+            print(f"@{k}: " + " ".join(f"{name}={value:.4f}" for name, value in scores.items()))
     print(f"seconds: {wall:.1f}")
     print(f"checkpoint: {checkpoint_dir}")
     print("=" * 60)
