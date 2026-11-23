@@ -31,7 +31,7 @@ class HFEncoder(nn.Module):
                 param.requires_grad = False
         else:
             # Recompute activations so two trainable BERT towers fit in 6 GB.
-            self.model.activation_checkpointing_enable()
+            self.model.gradient_checkpointing_enable()
 
     @property
     def embedding_dim(self) -> int:
