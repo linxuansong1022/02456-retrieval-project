@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-/home/hanan/venvs/retrieval/bin/python train_dpr.py model=hf_encoder train.epochs=3 train.batch_size=16 train.lr=2e-5 device=cuda
+${PY:-python} train_dpr.py model=hf_encoder train.epochs=3 train.batch_size=16 train.lr=2e-5 device=cuda
