@@ -3,6 +3,7 @@ import shutil
 import json
 from datasets import Dataset, DatasetDict, load_from_disk
 from src.data_utils.download_retrieval_datasets import get_fiqa_dataset, get_squad_dataset
+from src.data_utils.query import Query
 
 class Corpus:
     def __init__(self, dataset_name: str, base_dir: str):
@@ -51,6 +52,11 @@ class Corpus:
 
         return Dataset.from_dict({'text': [[text] for text in documents.values()],
                                   'document_id': [[doc_id] for doc_id in documents]})
+
+    def queries(self, split: str) -> list[Query]:
+        ds = getattr(self, split)
+        return [Query(text, id=query_id, relevant_document_ids=self.relevant_ids[query_id])
+                for text, query_id in zip(ds['question'], ds['query_id'])]
 
 
     def __load_data(self, base_dir) -> dict[Dataset]:

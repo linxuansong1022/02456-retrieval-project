@@ -10,14 +10,13 @@ import time
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup
 
-from src.data_utils.query import Query
-from src.evaluation.metrics import calculateRecall
-from src.retrievers.models.hf_encoder import HFEncoder
+from src.evaluation.metrics import Evaluate
+from src.retrievers.dpr import DPR
+from src.retrievers.utils import retrieveQueryAndGetRelevancies
 from src.training.loss import DPRLoss
 
 
@@ -169,66 +168,15 @@ class Trainer:
             last_loss = loss_value
         return first_loss, last_loss
 
-    def _encode_texts(self, encoder, texts: list[str], max_len: int, batch_size: int) -> torch.Tensor:
-        embeddings: list[torch.Tensor] = []
-        with torch.no_grad():
-            for i in range(0, len(texts), batch_size):
-                chunk = texts[i : i + batch_size]
-                encoded = self.tokenizer(
-                    chunk,
-                    padding=True,
-                    truncation=True,
-                    max_length=max_len,
-                    return_tensors="pt",
-                )
-                ids = encoded["input_ids"].to(self.device)
-                mask = encoded["attention_mask"].to(self.device)
-                # contiguous() drops the reference to the (B, T, d) parent
-                embeddings.append(encoder(ids, mask).contiguous())
-        return torch.cat(embeddings, dim=0)
-
-    def evaluate_recall(
-        self,
-        queries: list[tuple],
-        documents: list[tuple[str, str]],
-        k: tuple = (1, 5, 10, 20),
-        batch_size: int = 128,
-    ) -> dict[int, float]:
-        """Return recall@k for queries ranked against documents.
-
-        ``queries`` holds ``(query_id, query_text, relevant_document_ids)``
-        tuples and ``documents`` holds ``(document_id, text)`` tuples.
-        """
+    def evaluate(self, queries, documents, k: tuple = (1, 5, 10, 20), batch_size: int = 128) -> dict:
+        """Score val queries the same way main.py does: DPR retriever, then Evaluate at each k."""
         if self.tokenizer is None:
-            raise RuntimeError("tokenizer not set; call set_tokenizer before evaluate_recall")
+            raise RuntimeError("tokenizer not set; call set_tokenizer before evaluate")
 
-        self.query_encoder.eval()
-        self.document_encoder.eval()
-
-        document_ids = [doc_id for doc_id, _ in documents]
-        document_texts = [text for _, text in documents]
-        document_emb = self._encode_texts(self.document_encoder, document_texts, self.passage_max_len, batch_size)
-        document_emb = F.normalize(document_emb, p=2, dim=-1)
-
-        query_objs = [Query(text=q[1], id=q[0], relevant_document_ids=q[2]) for q in queries]
-        query_texts = [q[1] for q in queries]
-        query_emb = self._encode_texts(self.query_encoder, query_texts, self.query_max_len, batch_size)
-        query_emb = F.normalize(query_emb, p=2, dim=-1)
-
-        scores = query_emb @ document_emb.transpose(0, 1)  # (n_queries, n_documents)
-        top = min(max(k), scores.shape[1])
-        topk_indices = scores.topk(top, dim=1).indices  # (n_queries, top)
-
-        results: dict[int, float] = {}
-        for kk in k:
-            per_query = []
-            width = min(kk, top)
-            for i, query_obj in enumerate(query_objs):
-                ranked_ids = [document_ids[j] for j in topk_indices[i, :width].tolist()]
-                relevancies = [doc_id in query_obj.relevant_document_ids for doc_id in ranked_ids]
-                per_query.append(calculateRecall(relevancies, query_obj))
-            results[kk] = sum(per_query) / len(per_query) if per_query else 0.0
-        return results
+        retriever = DPR(documents, self.query_encoder, self.document_encoder, self.tokenizer,
+                        self.query_max_len, self.passage_max_len, batch_size, self.device)
+        relevancies = retrieveQueryAndGetRelevancies(retriever, queries, k=max(k))
+        return {kk: Evaluate([row[:kk] for row in relevancies], queries, k=kk) for kk in k}
 
     def save_checkpoint(self, dir: str, meta: dict | None = None) -> str:
         """Save both encoders, the tokenizer and a meta.json describing them."""
@@ -244,35 +192,3 @@ class Trainer:
         with open(os.path.join(dir, "meta.json"), "w") as f:
             json.dump(meta, f, indent=2)
         return dir
-
-    def load_checkpoint(self, dir: str, tower: str = "hf", device: str = "cpu"):
-        """Return ``(query_encoder, document_encoder, meta, tokenizer)``."""
-        meta_path = os.path.join(dir, "meta.json")
-        with open(meta_path) as f:
-            meta = json.load(f)
-
-        tokenizer_dir = os.path.join(dir, "tokenizer")
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir) if os.path.isdir(tokenizer_dir) else None
-
-        if tower == "hf":
-            query_encoder = HFEncoder(
-                model_name=meta.get("model_name", "bert-base-uncased"),
-                pooling_type=meta.get("pooling_type", "cls"),
-            )
-            document_encoder = HFEncoder(
-                model_name=meta.get("model_name", "bert-base-uncased"),
-                pooling_type=meta.get("pooling_type", "cls"),
-            )
-        elif tower == "scratch":
-            raise RuntimeError(
-                "The from-scratch tower is not available yet: "
-                "src/retrievers/models/encoder.py still raises NotImplementedError."
-            )
-        else:
-            raise ValueError(f"unknown tower {tower!r}; expected 'hf' or 'scratch'")
-
-        query_encoder.load_state_dict(torch.load(os.path.join(dir, "query_encoder.pt"), map_location=device))
-        document_encoder.load_state_dict(torch.load(os.path.join(dir, "document_encoder.pt"), map_location=device))
-        query_encoder.to(device)
-        document_encoder.to(device)
-        return query_encoder, document_encoder, meta, tokenizer
