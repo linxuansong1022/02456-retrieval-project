@@ -1,0 +1,5 @@
+tower: hf
+model_name: answerdotai/ModernBERT-base
+pooling_type: mean  # cls | mean | max
+freeze: false
+shared: true  # two trainable towers need about 4.8 GB for fp32 weights, grads and Adam state alone

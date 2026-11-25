@@ -63,8 +63,17 @@ class Trainer:
         self.query_max_len = query_max_len
         self.passage_max_len = passage_max_len
 
+    @property
+    def shared(self) -> bool:
+        return self.query_encoder is self.document_encoder
+
+    def _parameters(self) -> list:
+        # A shared tower would otherwise appear twice in the optimiser.
+        unique = {id(p): p for p in itertools.chain(self.query_encoder.parameters(), self.document_encoder.parameters())}
+        return list(unique.values())
+
     def _optimizer_and_scheduler(self, total_steps: int):
-        params = list(self.query_encoder.parameters()) + list(self.document_encoder.parameters())
+        params = self._parameters()
         optimizer = torch.optim.AdamW(params, lr=self.lr, weight_decay=self.weight_decay)
         warmup_steps = int(total_steps * self.warmup_ratio)
         scheduler = get_linear_schedule_with_warmup(
@@ -179,14 +188,16 @@ class Trainer:
         return {kk: Evaluate([row[:kk] for row in relevancies], queries, k=kk) for kk in k}
 
     def save_checkpoint(self, dir: str, meta: dict | None = None) -> str:
-        """Save both encoders, the tokenizer and a meta.json describing them."""
+        """Save both encoders (one file when they are shared), the tokenizer and a meta.json."""
         os.makedirs(dir, exist_ok=True)
         torch.save(self.query_encoder.state_dict(), os.path.join(dir, "query_encoder.pt"))
-        torch.save(self.document_encoder.state_dict(), os.path.join(dir, "document_encoder.pt"))
+        if not self.shared:
+            torch.save(self.document_encoder.state_dict(), os.path.join(dir, "document_encoder.pt"))
         if self.tokenizer is not None:
             self.tokenizer.save_pretrained(os.path.join(dir, "tokenizer"))
 
         meta = dict(meta or {})
+        meta["shared_tower"] = self.shared
         meta.setdefault("git_commit", _git_commit())
         meta.setdefault("created_at", datetime.datetime.now(datetime.timezone.utc).isoformat())
         with open(os.path.join(dir, "meta.json"), "w") as f:
