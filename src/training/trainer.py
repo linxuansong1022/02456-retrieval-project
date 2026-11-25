@@ -1,6 +1,7 @@
 """The DPR training loop, evaluation, checkpointing and a 64-pair overfit check."""
 from __future__ import annotations
 
+import contextlib
 import datetime
 import itertools
 import json
@@ -27,7 +28,28 @@ def _git_commit() -> str | None:
         return None
 
 
+def as_chunked(batch: dict) -> dict:
+    """Turn a PairCollator batch (one padded tensor per side) into the micro-batch form."""
+    if "queries" in batch:
+        return batch
+    n = batch["query_input_ids"].shape[0]
+    index = torch.arange(n)
+    return {
+        "queries": [(batch["query_input_ids"], batch["query_attention_mask"], index)],
+        "passages": [(batch["document_input_ids"], batch["document_attention_mask"], index)],
+        "n_queries": n,
+        "n_passages": n,
+        "ignore": None,
+    }
+
+
 class Trainer:
+    """Trains the two towers with InfoNCE over every passage in the batch.
+
+    The step uses a gradient cache (Gao et al., 2021), so only one micro-batch of
+    activations is alive at a time.
+    """
+
     def __init__(
         self,
         query_encoder,
@@ -41,6 +63,7 @@ class Trainer:
         warmup_ratio: float = 0.1,
         log_every: int = 50,
         seed: int = 0,
+        bf16: bool = False,
     ):
         self.query_encoder = query_encoder
         self.document_encoder = document_encoder
@@ -53,6 +76,7 @@ class Trainer:
         self.warmup_ratio = warmup_ratio
         self.log_every = log_every
         self.seed = seed
+        self.bf16 = bf16 and str(device).startswith("cuda")
         self.criterion = DPRLoss(temperature=temperature, normalize=normalize)
         self.tokenizer = None
         self.query_max_len = 64
@@ -66,6 +90,11 @@ class Trainer:
     @property
     def shared(self) -> bool:
         return self.query_encoder is self.document_encoder
+
+    def _autocast(self):
+        if self.bf16:
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        return contextlib.nullcontext()
 
     def _parameters(self) -> list:
         # A shared tower would otherwise appear twice in the optimiser.
@@ -83,19 +112,55 @@ class Trainer:
         )
         return optimizer, scheduler, params
 
-    def _step(self, optimizer, params, batch) -> float:
-        query_ids = batch["query_input_ids"].to(self.device)
-        query_mask = batch["query_attention_mask"].to(self.device)
-        document_ids = batch["document_input_ids"].to(self.device)
-        document_mask = batch["document_attention_mask"].to(self.device)
+    def _rng_state(self):
+        cuda = torch.cuda.get_rng_state() if str(self.device).startswith("cuda") else None
+        return torch.get_rng_state(), cuda
 
+    def _set_rng_state(self, state) -> None:
+        torch.set_rng_state(state[0])
+        if state[1] is not None:
+            torch.cuda.set_rng_state(state[1])
+
+    def _embed_without_graph(self, encoder, chunks, n: int):
+        """Embed each micro-batch, keeping the RNG state so the replay matches (dropout)."""
+        out, states = None, []
+        with torch.no_grad():
+            for ids, mask, index in chunks:
+                states.append(self._rng_state())
+                with self._autocast():
+                    reps = encoder(ids.to(self.device), mask.to(self.device)).float()
+                if out is None:
+                    out = torch.empty(n, reps.shape[1], device=reps.device)
+                out[index.to(reps.device)] = reps
+        return out, states
+
+    def _replay(self, encoder, chunks, states, grads) -> None:
+        for (ids, mask, index), state in zip(chunks, states):
+            self._set_rng_state(state)
+            with self._autocast():
+                reps = encoder(ids.to(self.device), mask.to(self.device)).float()
+            reps.backward(grads[index.to(grads.device)])
+
+    def _step(self, optimizer, params, batch) -> float:
+        batch = as_chunked(batch)
         optimizer.zero_grad()
-        query_emb = self.query_encoder(query_ids, query_mask)
-        document_emb = self.document_encoder(document_ids, document_mask)
-        loss = self.criterion(query_emb, document_emb)
+        query_emb, query_states = self._embed_without_graph(self.query_encoder, batch["queries"], batch["n_queries"])
+        document_emb, document_states = self._embed_without_graph(
+            self.document_encoder, batch["passages"], batch["n_passages"]
+        )
+        query_emb.requires_grad_(True)
+        document_emb.requires_grad_(True)
+        ignore = batch["ignore"].to(query_emb.device) if batch["ignore"] is not None else None
+        loss = self.criterion(query_emb, document_emb, ignore)
         if not torch.isfinite(loss):
             raise RuntimeError(f"non-finite loss: {loss.item()}")
         loss.backward()
+
+        rng = self._rng_state()
+        self._replay(self.query_encoder, batch["queries"], query_states, query_emb.grad)
+        self._replay(self.document_encoder, batch["passages"], document_states, document_emb.grad)
+        self._set_rng_state(rng)
+
         if self.grad_clip is not None and self.grad_clip > 0:
             nn.utils.clip_grad_norm_(params, self.grad_clip)
         optimizer.step()

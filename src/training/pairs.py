@@ -209,3 +209,60 @@ class QuestionDataset(Dataset):
             frozenset(question.positives),
         )
 
+
+def chunk_by_tokens(lengths: list[int], max_tokens: int, max_rows: int) -> list[list[int]]:
+    """Group row indices, longest first, so rows * longest row stays under max_tokens."""
+    order = sorted(range(len(lengths)), key=lambda i: -lengths[i])
+    chunks: list[list[int]] = []
+    for i in order:
+        if chunks and len(chunks[-1]) < max_rows and (len(chunks[-1]) + 1) * lengths[chunks[-1][0]] <= max_tokens:
+            chunks[-1].append(i)
+        else:
+            chunks.append([i])
+    return chunks
+
+
+class ContrastiveCollator:
+    """Tokenize a batch of Examples into length-sorted, padded micro-batches.
+
+    The passage pool is the B gold passages (row i for question i) followed by the
+    hard negatives. ``ignore[i, j]`` marks passage j as gold for question i but not
+    its row-i positive, so a second answer never counts as a negative.
+    """
+
+    def __init__(self, tokenizer, query_max_len: int = 64, passage_max_len: int = 512,
+                 chunk_tokens: int = 8192, chunk_rows: int = 64):
+        self.tokenizer = tokenizer
+        self.query_max_len = query_max_len
+        self.passage_max_len = passage_max_len
+        self.chunk_tokens = chunk_tokens
+        self.chunk_rows = chunk_rows
+
+    def _chunks(self, texts: list[str], max_len: int) -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        encoded = self.tokenizer(texts, truncation=True, max_length=max_len)["input_ids"]
+        chunks = []
+        for rows in chunk_by_tokens([len(ids) for ids in encoded], self.chunk_tokens, self.chunk_rows):
+            padded = self.tokenizer.pad({"input_ids": [encoded[i] for i in rows]}, padding="longest", return_tensors="pt")
+            chunks.append((padded["input_ids"].long(), padded["attention_mask"].long(), torch.tensor(rows)))
+        return chunks
+
+    def __call__(self, batch: list[Example]) -> dict:
+        passage_ids = [example.positive_id for example in batch]
+        passage_texts = [example.positive_text for example in batch]
+        for example in batch:
+            for doc_id, text in example.negatives:
+                passage_ids.append(doc_id)
+                passage_texts.append(text)
+
+        ignore = torch.tensor(
+            [[doc_id in example.gold_ids and j != i for j, doc_id in enumerate(passage_ids)]
+             for i, example in enumerate(batch)],
+            dtype=torch.bool,
+        )
+        return {
+            "queries": self._chunks([example.query_text for example in batch], self.query_max_len),
+            "passages": self._chunks(passage_texts, self.passage_max_len),
+            "n_queries": len(batch),
+            "n_passages": len(passage_ids),
+            "ignore": ignore,
+        }
