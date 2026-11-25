@@ -1,7 +1,7 @@
-from math import isclose
+from math import isclose, log2
 
 from src.data_utils.query import Query
-from src.evaluation.metrics import Evaluate, calculateMRR, calculatePrecision
+from src.evaluation.metrics import Evaluate, calculateMRR, calculateNDCG, calculatePrecision
 
 
 def test_precision_counts_relevant_results():
@@ -79,3 +79,13 @@ def test_evaluate_returns_recall_precision_and_mrr():
     assert isclose(scores["recall"], 2 / 3)
     assert isclose(scores["precision"], 1 / 3)
     assert scores["mrr"] == 0.5
+
+
+def test_ndcg_perfect_and_partial():
+    query = Query("q", "q0", ["d0", "d1"])
+    assert isclose(calculateNDCG([True, True, False], query), 1.0)
+    # one of two gold passages, at rank 2: (1 / log2 3) / (1 + 1 / log2 3)
+    assert isclose(calculateNDCG([False, True, False], query), (1 / log2(3)) / (1 + 1 / log2(3)))
+    # ideal list cut at the ranking length: k = 1 with one hit is perfect
+    assert isclose(calculateNDCG([True], query), 1.0)
+    assert calculateNDCG([False, False], query) == 0.0

@@ -1,3 +1,5 @@
+from math import log2
+
 from src.data_utils.query import Query
 
 def calculateRecall(relevancies: list[bool], query: Query):
@@ -32,18 +34,29 @@ def calculateMRR(relevancies: list[list[bool]]):
 
     return total_reciprocal_rank / len(relevancies)
 
+def calculateNDCG(relevancies: list[bool], query: Query):
+    """Binary-relevance nDCG over the supplied ranking (cut it to k first), as BEIR computes it."""
+    dcg = sum(1 / log2(rank + 2) for rank, hit in enumerate(relevancies) if hit)
+    ideal_hits = min(len(relevancies), query.getNumberOfRelevantDocuments())
+    idcg = sum(1 / log2(rank + 2) for rank in range(ideal_hits))
+    return dcg / idcg if idcg else 0.0
+
+
 def Evaluate(relevancies: list[list[bool]], queries: list[Query], k=None):
     assert len(relevancies) == len(queries), 'The number of relevant passages must match the number of queries'
     scores = {'recall': None}
     n_queries = len(queries)
     total_recall = 0
     total_precision = 0
-    
+    total_ndcg = 0
+
     for i in range(n_queries):
         total_recall += calculateRecall(relevancies[i], queries[i])
         total_precision += calculatePrecision(relevancies[i], k)
-    
+        total_ndcg += calculateNDCG(relevancies[i], queries[i])
+
     scores['recall'] = total_recall / n_queries
     scores['precision'] = total_precision / n_queries
     scores['mrr'] = calculateMRR(relevancies)
+    scores['ndcg'] = total_ndcg / n_queries
     return scores

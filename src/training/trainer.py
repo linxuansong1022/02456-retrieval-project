@@ -172,8 +172,17 @@ class Trainer:
         epochs: int,
         val_fn=None,
         val_loader=None,
+        select=None,
+        patience: int | None = None,
+        on_best=None,
+        on_epoch_end=None,
     ) -> list[dict]:
-        """Train for a number of epochs and return one history entry per epoch."""
+        """Train for a number of epochs and return one history entry per epoch.
+
+        With ``select`` (val -> float, higher is better), ``on_best(entry)`` runs
+        when the score improves and training stops after ``patience`` epochs without
+        improvement; ``on_epoch_end(history)`` runs after every epoch.
+        """
         torch.manual_seed(self.seed)
         self.query_encoder.to(self.device)
         self.document_encoder.to(self.device)
@@ -184,6 +193,7 @@ class Trainer:
         optimizer, scheduler, params = self._optimizer_and_scheduler(total_steps)
 
         history: list[dict] = []
+        best_score, bad_epochs = None, 0
         for epoch in range(epochs):
             if hasattr(train_loader.dataset, "set_epoch"):
                 train_loader.dataset.set_epoch(epoch)
@@ -207,21 +217,41 @@ class Trainer:
                 optimizer.zero_grad(set_to_none=True)
                 self.query_encoder.eval()
                 self.document_encoder.eval()
+                val_start = time.time()
                 val = val_fn()
+                val_seconds = time.time() - val_start
                 self.query_encoder.train()
                 self.document_encoder.train()
             else:
-                val = None
+                val, val_seconds = None, 0.0
 
-            history.append(
-                {
-                    "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "losses_tail": losses_tail,
-                    "seconds": seconds,
-                    "val": val,
-                }
-            )
+            entry = {
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "losses_tail": losses_tail,
+                "seconds": seconds,
+                "val_seconds": val_seconds,
+                "val": val,
+            }
+            stop = False
+            if select is not None and val is not None:
+                score = select(val)
+                entry["selected"] = score
+                if best_score is None or score > best_score:
+                    best_score, bad_epochs = score, 0
+                    entry["best"] = True
+                    if on_best is not None:
+                        on_best(entry)
+                else:
+                    bad_epochs += 1
+                    stop = patience is not None and bad_epochs >= patience
+            history.append(entry)
+            print(f"epoch {epoch + 1} summary {json.dumps(entry)}", flush=True)
+            if on_epoch_end is not None:
+                on_epoch_end(history)
+            if stop:
+                print(f"early stop after epoch {epoch + 1}: no improvement for {patience} epochs")
+                break
         return history
 
     def fit_overfit(self, loader: DataLoader, steps: int) -> tuple[float, float]:
@@ -245,7 +275,7 @@ class Trainer:
         return first_loss, last_loss
 
     def evaluate(self, queries, documents, k: tuple = (1, 5, 10, 20), batch_size: int = 128) -> dict:
-        """Score val queries the same way main.py does: DPR retriever, then Evaluate at each k."""
+        """Score the queries with the DPR retriever and Evaluate at each k."""
         if self.tokenizer is None:
             raise RuntimeError("tokenizer not set; call set_tokenizer before evaluate")
 
