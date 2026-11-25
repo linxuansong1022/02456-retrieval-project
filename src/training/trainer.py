@@ -120,6 +120,8 @@ class Trainer:
 
         history: list[dict] = []
         for epoch in range(epochs):
+            if hasattr(train_loader.dataset, "set_epoch"):
+                train_loader.dataset.set_epoch(epoch)
             start = time.time()
             step_losses: list[float] = []
             progress = tqdm(train_loader, desc=f"epoch {epoch + 1}/{epochs}")
