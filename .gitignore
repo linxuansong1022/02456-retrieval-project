@@ -12,6 +12,11 @@ retrieval_data/
 checkpoints/
 .DS_Store
 
+# HPC job output
+*.err
+*.out
+jobscript_*.sh
+
 # Distribution / packaging
 .Python
 build/
@@ -222,3 +227,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# committed experiment logs
+!experiments/**/*.log
