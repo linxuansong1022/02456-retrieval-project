@@ -189,6 +189,26 @@ def main(cfg: DictConfig) -> None:
         k, metric = select_key.split(".")
         select = lambda val: val[int(k)][metric]  # noqa: E731
 
+    def write_run(history, finished):
+        run = {
+            "config": OmegaConf.to_container(cfg, resolve=True),
+            "n_pairs": len(examples),
+            "unit": unit,
+            "history": history,
+            "selected_epoch": next((e["epoch"] for e in reversed(history) if e.get("best")), None),
+            "finished": finished,
+            "wall_clock_seconds": time.time() - start,
+            "device": device,
+            "git_commit": _git_commit(),
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        with open(os.path.join(checkpoint_dir, "run.json"), "w") as f:
+            json.dump(run, f, indent=2)
+
+    def on_epoch_end(history):
+        write_run(history, finished=False)
+
     if cfg.overfit > 0:
         steps = cfg.train.epochs * len(train_loader)
         first_loss, last_loss = trainer.fit_overfit(train_loader, steps)
@@ -198,44 +218,26 @@ def main(cfg: DictConfig) -> None:
         print(f"overfit: first_loss={first_loss:.6f} last_loss={last_loss:.6f} steps={steps}")
         save(cfg.train.epochs, final_train_loss, val)
     elif select is not None:
-        # Keep the checkpoint from the best validation epoch, not the last one.
-        best = {}
-
-        def on_best(epoch):
-            best["epoch"] = epoch
-            save(epoch, None, None)
-
+        # The checkpoint on disk is always the best validation epoch so far, not the last one.
         history = trainer.train(
             train_loader,
             epochs=cfg.train.epochs,
             val_fn=val_fn,
             select=select,
             patience=train_cfg.get("patience", None),
-            on_best=on_best,
+            on_best=lambda entry: save(entry["epoch"], entry["train_loss"], entry["val"]),
+            on_epoch_end=on_epoch_end,
         )
-        chosen = history[best["epoch"] - 1]
+        chosen = next(e for e in reversed(history) if e.get("best"))
         final_train_loss = chosen["train_loss"]
         val = chosen["val"]
-        save(chosen["epoch"], final_train_loss, val)  # rewrite meta.json with the chosen epoch's numbers
     else:
-        history = trainer.train(train_loader, epochs=cfg.train.epochs, val_fn=val_fn)
+        history = trainer.train(train_loader, epochs=cfg.train.epochs, val_fn=val_fn, on_epoch_end=on_epoch_end)
         final_train_loss = history[-1]["train_loss"]
         val = history[-1]["val"]
         save(cfg.train.epochs, final_train_loss, val)
 
-    run = {
-        "config": OmegaConf.to_container(cfg, resolve=True),
-        "n_pairs": len(examples),
-        "unit": unit,
-        "history": history,
-        "selected_epoch": next((e["epoch"] for e in reversed(history) if e.get("best")), None),
-        "wall_clock_seconds": time.time() - start,
-        "device": device,
-        "git_commit": _git_commit(),
-        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    with open(os.path.join(checkpoint_dir, "run.json"), "w") as f:
-        json.dump(run, f, indent=2)
+    write_run(history, finished=True)
 
     wall = time.time() - start
     print("=" * 60)

@@ -17,9 +17,10 @@ tokenizer_name: answerdotai/ModernBERT-base
 
 train:
   unit: questions
-  # 10 epochs fit the 4 h budget: the laptop GPU sits at its thermal limit and an
-  # epoch (43 steps plus validation on the full corpus) takes about 16 min.
-  epochs: 10
+  # 7 epochs fit the 4 h budget: the laptop GPU sits at its thermal limit (SW
+  # thermal slowdown, 200 to 500 MHz) and an epoch, 43 steps plus validation on
+  # the full corpus, takes about 20 min.
+  epochs: 7
   batch_size: 128        # questions per optimiser step
   n_hard: 1              # BM25 negatives per question, so 256 passages per step
   hard_pool: 10          # drawn each epoch from the 10 best-ranked non-gold BM25 passages

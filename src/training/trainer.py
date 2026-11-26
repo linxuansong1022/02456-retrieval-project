@@ -179,12 +179,14 @@ class Trainer:
         select=None,
         patience: int | None = None,
         on_best=None,
+        on_epoch_end=None,
     ) -> list[dict]:
         """Train for a number of epochs and return one history entry per epoch.
 
-        With ``select`` (val -> float, higher is better), ``on_best(epoch)`` runs
+        With ``select`` (val -> float, higher is better), ``on_best(entry)`` runs
         whenever the validation score improves, and training stops once it has not
-        improved for ``patience`` epochs.
+        improved for ``patience`` epochs. ``on_epoch_end(history)`` runs after every
+        epoch, so a caller can keep a record that survives an interrupted run.
         """
         torch.manual_seed(self.seed)
         self.query_encoder.to(self.device)
@@ -244,12 +246,14 @@ class Trainer:
                     best_score, bad_epochs = score, 0
                     entry["best"] = True
                     if on_best is not None:
-                        on_best(epoch + 1)
+                        on_best(entry)
                 else:
                     bad_epochs += 1
                     stop = patience is not None and bad_epochs >= patience
             history.append(entry)
             print(f"epoch {epoch + 1} summary {json.dumps(entry)}", flush=True)
+            if on_epoch_end is not None:
+                on_epoch_end(history)
             if stop:
                 print(f"early stop after epoch {epoch + 1}: no improvement for {patience} epochs")
                 break
