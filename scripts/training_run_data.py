@@ -12,6 +12,10 @@
     python scripts/training_run_data.py second --log train.log --run run.json --eval eval.json \
         --diag <dir with tau-*/hf_*/run.json> --mining hard_negatives.json
 
+    # the SQuAD run (section 11): sizes, mining stats, rounds and scores
+    python scripts/training_run_data.py squad --log train.log --run run.json --eval eval.json \
+        --mining hard_negatives.json --base-path <repo with retrieval_data>
+
 Every number on the page comes from one of these files.
 """
 from __future__ import annotations
@@ -301,6 +305,52 @@ def second(args) -> None:
           f"{len(diag)} diagnostic runs, methods {sorted(evaluation['methods'])}")
 
 
+SQUAD_OPEN = '<script id="squad-data" type="application/json">'
+
+
+def squad(args) -> None:
+    """Write the data block for the SQuAD run (section 11 of the page)."""
+    from src.data_utils.corpus import Corpus
+    from src.training.pairs import pairs_from_corpus
+
+    run = json.loads(Path(args.run).read_text())
+    steps = parse_step_losses(Path(args.log).read_text(errors="replace"))
+    for entry in run["history"]:
+        logged = steps.get(entry["epoch"], [])
+        mean = sum(logged) / len(logged)
+        if abs(mean - entry["train_loss"]) > 1e-5:
+            raise SystemExit(f"round {entry['epoch']}: parsed mean {mean:.6f}, run.json says {entry['train_loss']:.6f}")
+
+    corpus = Corpus(dataset_name="squad", base_dir=f"{args.base_path}/retrieval_data")
+    sizes = {
+        "train_questions": corpus.train.num_rows,
+        "train_pairs": len(pairs_from_corpus(corpus, split="train")),
+        "val_queries": corpus.val.num_rows,
+        "test_questions": corpus.test.num_rows,
+        "passages": corpus.all_documents.num_rows,
+    }
+    mining = json.loads(Path(args.mining).read_text())
+    evaluation = json.loads(Path(args.eval).read_text())
+    data = {
+        "sizes": sizes,
+        "mining": {key: mining[key] for key in ("params", "train_bm25_hit_at_1")},
+        "run": {key: run[key] for key in ("n_pairs", "selected_epoch", "wall_clock_seconds", "finished", "git_commit",
+                                          "created_at")}
+        | {"train": run["config"]["train"], "model": run["config"]["model"],
+           "history": [{key: entry[key] for key in ("epoch", "train_loss", "seconds", "val_seconds", "val")}
+                       for entry in run["history"]],
+           "stopped": args.stopped},
+        "eval": {"n_passages": evaluation["n_passages"],
+                 "methods": {name: _scores_only(method) for name, method in evaluation["methods"].items()}},
+    }
+    html = PAGE.read_text()
+    start = html.index(SQUAD_OPEN) + len(SQUAD_OPEN)
+    end = html.index(DATA_CLOSE, start)
+    blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
+    PAGE.write_text(html[:start] + blob + html[end:])
+    print(f"squad: {sizes}; {len(run['history'])} rounds; methods {sorted(evaluation['methods'])}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -330,8 +380,16 @@ def main() -> None:
     sc.add_argument("--mining")
     sc.add_argument("--base-path", default=".")
 
+    sq = sub.add_parser("squad")
+    sq.add_argument("--log", required=True)
+    sq.add_argument("--run", required=True)
+    sq.add_argument("--eval", required=True)
+    sq.add_argument("--mining", required=True)
+    sq.add_argument("--base-path", default=".")
+    sq.add_argument("--stopped", help="why the run was stopped by hand before its last round, if it was")
+
     args = parser.parse_args()
-    {"evaluate": evaluate, "page": page, "second": second}[args.command](args)
+    {"evaluate": evaluate, "page": page, "second": second, "squad": squad}[args.command](args)
 
 
 if __name__ == "__main__":
