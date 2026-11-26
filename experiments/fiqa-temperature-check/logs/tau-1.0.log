@@ -1,0 +1,26 @@
+Loading weights:   0%|          | 0/134 [00:00<?, ?it/s]Loading weights: 100%|██████████| 134/134 [00:00<00:00, 17663.56it/s]
+[transformers] [1mModernBertModel LOAD REPORT[0m from: answerdotai/ModernBERT-base
+Key               | Status     |  | 
+------------------+------------+--+-
+head.dense.weight | UNEXPECTED |  | 
+decoder.bias      | UNEXPECTED |  | 
+head.norm.weight  | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+/home/hanan/venvs/retrieval/lib64/python3.14/site-packages/transformers/modeling_utils.py:3195: FutureWarning: `gradient_checkpointing_enable` is deprecated and will be removed in v6. Use `activation_checkpointing_enable` instead.
+  warnings.warn(
+questions[train]: 1024 batch=128 passages_per_batch=256 hard_negatives_per_question=1 drawn_from_top=10
+epoch 1/1:   0%|          | 0/8 [00:00<?, ?it/s]epoch 1/1:   0%|          | 0/8 [00:09<?, ?it/s, loss=5.525264]epoch 1/1:  12%|█▎        | 1/8 [00:09<01:08,  9.81s/it, loss=5.525264]epoch 1/1:  12%|█▎        | 1/8 [00:19<01:08,  9.81s/it, loss=5.476714]epoch 1/1:  25%|██▌       | 2/8 [00:19<00:59,  9.90s/it, loss=5.476714]epoch 1/1:  25%|██▌       | 2/8 [00:30<00:59,  9.90s/it, loss=5.419988]epoch 1/1:  38%|███▊      | 3/8 [00:30<00:51, 10.24s/it, loss=5.419988]epoch 1/1:  38%|███▊      | 3/8 [00:41<00:51, 10.24s/it, loss=5.398261]epoch 1/1:  50%|█████     | 4/8 [00:41<00:41, 10.40s/it, loss=5.398261]epoch 1/1:  50%|█████     | 4/8 [00:53<00:41, 10.40s/it, loss=5.411481]epoch 1/1:  62%|██████▎   | 5/8 [00:53<00:33, 11.05s/it, loss=5.411481]epoch 1/1:  62%|██████▎   | 5/8 [01:06<00:33, 11.05s/it, loss=5.416341]epoch 1/1:  75%|███████▌  | 6/8 [01:06<00:23, 11.69s/it, loss=5.416341]epoch 1/1:  75%|███████▌  | 6/8 [01:19<00:23, 11.69s/it, loss=5.365990]epoch 1/1:  88%|████████▊ | 7/8 [01:19<00:12, 12.22s/it, loss=5.365990]epoch 1/1:  88%|████████▊ | 7/8 [01:33<00:12, 12.22s/it, loss=5.349806]epoch 1/1: 100%|██████████| 8/8 [01:33<00:00, 12.85s/it, loss=5.349806]epoch 1/1: 100%|██████████| 8/8 [01:33<00:00, 11.71s/it, loss=5.349806]
+epoch 1 summary {"epoch": 1, "train_loss": 5.42048054933548, "losses_tail": 5.349806308746338, "seconds": 93.70256447792053, "val_seconds": 136.31107878684998, "val": {"1": {"recall": 0.026, "precision": 0.026, "mrr": 0.026, "ndcg": 0.026}, "5": {"recall": 0.023866666666666668, "precision": 0.011600000000000004, "mrr": 0.037433333333333325, "ndcg": 0.022581185606049856}, "10": {"recall": 0.03330714285714286, "precision": 0.008400000000000003, "mrr": 0.04039920634920634, "ndcg": 0.025885829120695394}, "20": {"recall": 0.049483405483405477, "precision": 0.006099999999999997, "mrr": 0.04226763008233596, "ndcg": 0.03089749802545901}}, "selected": 0.025885829120695394, "best": true}
+============================================================
+questions: 1024
+epochs run: 1
+train loss (kept epoch): 5.420481
+@1: recall=0.0260 precision=0.0260 mrr=0.0260 ndcg=0.0260
+@5: recall=0.0239 precision=0.0116 mrr=0.0374 ndcg=0.0226
+@10: recall=0.0333 precision=0.0084 mrr=0.0404 ndcg=0.0259
+@20: recall=0.0495 precision=0.0061 mrr=0.0423 ndcg=0.0309
+seconds: 234.2
+checkpoint: /home/hanan/.cache/dpr-e1063a6/improved-run/diag/tau-1.0/hf_mean
+============================================================

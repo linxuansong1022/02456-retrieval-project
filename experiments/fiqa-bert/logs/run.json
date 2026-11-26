@@ -1,0 +1,133 @@
+{
+  "config": {
+    "dataset": {
+      "name": "fiqa"
+    },
+    "device": "cuda",
+    "base_path": ".",
+    "tokenizer_name": "bert-base-uncased",
+    "train": {
+      "epochs": 3,
+      "batch_size": 16,
+      "lr": 2e-05,
+      "weight_decay": 0.01,
+      "warmup_ratio": 0.1,
+      "temperature": 1.0,
+      "normalize": true,
+      "grad_clip": 1.0,
+      "seed": 0,
+      "log_every": 50,
+      "query_max_len": 64,
+      "passage_max_len": 256
+    },
+    "eval": {
+      "k": [
+        1,
+        5,
+        10,
+        20
+      ],
+      "batch_size": 128
+    },
+    "overfit": 0,
+    "limit_pairs": 0,
+    "output_dir": "/home/hanan/.cache/dpr-e1063a6/full-run/checkpoints",
+    "model": {
+      "tower": "hf",
+      "model_name": "bert-base-uncased",
+      "pooling_type": "cls",
+      "freeze": false
+    }
+  },
+  "n_pairs": 14165,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 2.312480458556664,
+      "losses_tail": 2.1881460227535268,
+      "seconds": 1381.4765992164612,
+      "val": {
+        "1": {
+          "recall": 0.048,
+          "precision": 0.048,
+          "mrr": 0.048
+        },
+        "5": {
+          "recall": 0.05043333333333332,
+          "precision": 0.025199999999999983,
+          "mrr": 0.0685
+        },
+        "10": {
+          "recall": 0.07355714285714286,
+          "precision": 0.01859999999999998,
+          "mrr": 0.07327698412698413
+        },
+        "20": {
+          "recall": 0.10124790764790767,
+          "precision": 0.01339999999999998,
+          "mrr": 0.07674050557285853
+        }
+      }
+    },
+    {
+      "epoch": 2,
+      "train_loss": 2.139084697980644,
+      "losses_tail": 2.129823049583004,
+      "seconds": 1632.6958827972412,
+      "val": {
+        "1": {
+          "recall": 0.05,
+          "precision": 0.05,
+          "mrr": 0.05
+        },
+        "5": {
+          "recall": 0.052199999999999996,
+          "precision": 0.022399999999999993,
+          "mrr": 0.0687
+        },
+        "10": {
+          "recall": 0.07582380952380952,
+          "precision": 0.01739999999999998,
+          "mrr": 0.07392063492063496
+        },
+        "20": {
+          "recall": 0.10832806637806638,
+          "precision": 0.012699999999999982,
+          "mrr": 0.07739915218939991
+        }
+      }
+    },
+    {
+      "epoch": 3,
+      "train_loss": 2.0933026121782126,
+      "losses_tail": 2.078008540942844,
+      "seconds": 1636.1002106666565,
+      "val": {
+        "1": {
+          "recall": 0.042,
+          "precision": 0.042,
+          "mrr": 0.042
+        },
+        "5": {
+          "recall": 0.0554,
+          "precision": 0.023599999999999986,
+          "mrr": 0.06473333333333332
+        },
+        "10": {
+          "recall": 0.07947936507936507,
+          "precision": 0.017799999999999986,
+          "mrr": 0.06945158730158729
+        },
+        "20": {
+          "recall": 0.1030962481962482,
+          "precision": 0.012299999999999985,
+          "mrr": 0.07176743133887095
+        }
+      }
+    }
+  ],
+  "wall_clock_seconds": 6001.892585515976,
+  "device": "cuda",
+  "git_commit": "8329cb91bf60bb5446422a03fa1d570bdaa353bf",
+  "created_at": "2026-11-25T21:02:57.568286+00:00"
+}

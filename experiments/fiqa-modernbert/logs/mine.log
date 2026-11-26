@@ -1,0 +1,2 @@
+pool: 14166 of 17110 passages (2944 val/test gold passages left out)
+mined 30 negatives for 5500 questions in 10s; BM25 puts a gold passage first for 0.256 of training questions

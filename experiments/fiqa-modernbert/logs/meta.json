@@ -1,0 +1,47 @@
+{
+  "tower": "hf",
+  "model": {
+    "tower": "hf",
+    "model_name": "answerdotai/ModernBERT-base",
+    "pooling_type": "mean",
+    "freeze": false,
+    "shared": true
+  },
+  "model_name": "answerdotai/ModernBERT-base",
+  "pooling_type": "mean",
+  "embedding_dim": 768,
+  "query_max_len": 64,
+  "passage_max_len": 512,
+  "epochs": 7,
+  "epoch": 5,
+  "final_train_loss": 0.6385105910689332,
+  "val": {
+    "1": {
+      "recall": 0.38,
+      "precision": 0.38,
+      "mrr": 0.38,
+      "ndcg": 0.38
+    },
+    "5": {
+      "recall": 0.39550000000000035,
+      "precision": 0.17000000000000076,
+      "mrr": 0.45526666666666676,
+      "ndcg": 0.3666461804525584
+    },
+    "10": {
+      "recall": 0.47845873015873036,
+      "precision": 0.11100000000000049,
+      "mrr": 0.466147619047619,
+      "ndcg": 0.39850602145173225
+    },
+    "20": {
+      "recall": 0.5590427072927076,
+      "precision": 0.06700000000000025,
+      "mrr": 0.47028140139873886,
+      "ndcg": 0.4246748865923845
+    }
+  },
+  "shared_tower": true,
+  "git_commit": "e0312795e8225d0b8d028d4793fc309771ea6183",
+  "created_at": "2026-11-26T05:36:55.920383+00:00"
+}

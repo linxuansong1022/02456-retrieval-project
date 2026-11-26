@@ -1,0 +1,40 @@
+{
+  "tower": "hf",
+  "model": {
+    "tower": "hf",
+    "model_name": "bert-base-uncased",
+    "pooling_type": "cls",
+    "freeze": false
+  },
+  "model_name": "bert-base-uncased",
+  "pooling_type": "cls",
+  "embedding_dim": 768,
+  "query_max_len": 64,
+  "passage_max_len": 256,
+  "epochs": 3,
+  "final_train_loss": 2.0933026121782126,
+  "val": {
+    "1": {
+      "recall": 0.042,
+      "precision": 0.042,
+      "mrr": 0.042
+    },
+    "5": {
+      "recall": 0.0554,
+      "precision": 0.023599999999999986,
+      "mrr": 0.06473333333333332
+    },
+    "10": {
+      "recall": 0.07947936507936507,
+      "precision": 0.017799999999999986,
+      "mrr": 0.06945158730158729
+    },
+    "20": {
+      "recall": 0.1030962481962482,
+      "precision": 0.012299999999999985,
+      "mrr": 0.07176743133887095
+    }
+  },
+  "git_commit": "8329cb91bf60bb5446422a03fa1d570bdaa353bf",
+  "created_at": "2026-11-25T21:02:57.566285+00:00"
+}

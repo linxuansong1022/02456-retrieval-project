@@ -1,0 +1,96 @@
+{
+  "config": {
+    "dataset": {
+      "name": "fiqa"
+    },
+    "device": "auto",
+    "base_path": "/home/hanan/.cache/dpr-e1063a6/repo",
+    "tokenizer_name": "answerdotai/ModernBERT-base",
+    "train": {
+      "unit": "questions",
+      "epochs": 1,
+      "batch_size": 128,
+      "n_hard": 1,
+      "hard_pool": 10,
+      "hard_negatives_file": "/home/hanan/.cache/dpr-e1063a6/improved-run/hard_negatives.json",
+      "chunk_tokens": 16384,
+      "chunk_rows": 128,
+      "lr": 5e-05,
+      "weight_decay": 0.01,
+      "warmup_ratio": 0.1,
+      "temperature": 0.05,
+      "normalize": true,
+      "grad_clip": 1.0,
+      "bf16": true,
+      "seed": 0,
+      "log_every": 10,
+      "query_max_len": 64,
+      "passage_max_len": 512,
+      "select": "10.ndcg",
+      "patience": 3
+    },
+    "eval": {
+      "k": [
+        1,
+        5,
+        10,
+        20
+      ],
+      "batch_size": 128
+    },
+    "overfit": 0,
+    "limit_pairs": 1024,
+    "output_dir": "/home/hanan/.cache/dpr-e1063a6/improved-run/diag/tau-0.05",
+    "model": {
+      "tower": "hf",
+      "model_name": "answerdotai/ModernBERT-base",
+      "pooling_type": "mean",
+      "freeze": false,
+      "shared": true
+    }
+  },
+  "n_pairs": 1024,
+  "unit": "questions",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 4.420102268457413,
+      "losses_tail": 3.6845192909240723,
+      "seconds": 139.50183248519897,
+      "val_seconds": 178.57919216156006,
+      "val": {
+        "1": {
+          "recall": 0.032,
+          "precision": 0.032,
+          "mrr": 0.032,
+          "ndcg": 0.032
+        },
+        "5": {
+          "recall": 0.06016666666666665,
+          "precision": 0.027199999999999978,
+          "mrr": 0.06116666666666665,
+          "ndcg": 0.048575208903106876
+        },
+        "10": {
+          "recall": 0.09748015873015875,
+          "precision": 0.022799999999999973,
+          "mrr": 0.06798174603174605,
+          "ndcg": 0.06257528524618446
+        },
+        "20": {
+          "recall": 0.14190411255411256,
+          "precision": 0.017099999999999973,
+          "mrr": 0.07387844017867239,
+          "ndcg": 0.07667347454825198
+        }
+      },
+      "selected": 0.06257528524618446,
+      "best": true
+    }
+  ],
+  "selected_epoch": 1,
+  "wall_clock_seconds": 322.8560519218445,
+  "device": "cuda",
+  "git_commit": "1a55e5044544b60cb3337c70817b9cfbfef700bc",
+  "created_at": "2026-11-26T03:56:43.274474+00:00"
+}
