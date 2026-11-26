@@ -3,6 +3,7 @@
     # retrieval scores at k = 1, 5, 10, 20 on val and test (merged into --out)
     python scripts/training_run_data.py evaluate --methods bm25 tf-idf --out eval.json
     python scripts/training_run_data.py evaluate --methods dpr --checkpoint <dir> --device cuda --out eval.json
+    (add --dataset squad for SQuAD; the default is fiqa)
 
     # parse train.log and run.json, then write the data block into the page
     python scripts/training_run_data.py page --log train.log --run run.json --eval eval.json --base-path <repo with retrieval_data>
@@ -36,10 +37,11 @@ def evaluate(args) -> None:
     from src.data_utils.corpus import Corpus
     from src.evaluation.metrics import Evaluate
 
-    corpus = Corpus(dataset_name="fiqa", base_dir=f"{args.base_path}/retrieval_data")
+    corpus = Corpus(dataset_name=args.dataset, base_dir=f"{args.base_path}/retrieval_data")
     documents = corpus.all_documents
     out = Path(args.out)
     results = json.loads(out.read_text()) if out.exists() else {}
+    results["dataset"] = args.dataset
     results["n_passages"] = documents.num_rows
 
     for method in args.methods:
@@ -305,6 +307,7 @@ def main() -> None:
 
     ev = sub.add_parser("evaluate")
     ev.add_argument("--methods", nargs="+", required=True, choices=("bm25", "tf-idf", "dpr"))
+    ev.add_argument("--dataset", default="fiqa", choices=("fiqa", "squad"))
     ev.add_argument("--base-path", default=".")
     ev.add_argument("--checkpoint")
     ev.add_argument("--device", default="cpu")
