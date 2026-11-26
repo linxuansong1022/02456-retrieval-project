@@ -69,6 +69,7 @@ def _resolve_device(device_cfg: str) -> str:
 @hydra.main(config_path="config", config_name="train_dpr.yaml", version_base=None)
 def main(cfg: DictConfig) -> None:
     start = time.time()
+    git_commit = _git_commit()  # at start: the worktree may move on while a long run is going
     device = _resolve_device(cfg.device)
     train_cfg = cfg.train
 
@@ -179,6 +180,7 @@ def main(cfg: DictConfig) -> None:
                 "epoch": epoch,
                 "final_train_loss": final_train_loss,
                 "val": val,
+                "git_commit": git_commit,
             },
         )
 
@@ -199,7 +201,7 @@ def main(cfg: DictConfig) -> None:
             "finished": finished,
             "wall_clock_seconds": time.time() - start,
             "device": device,
-            "git_commit": _git_commit(),
+            "git_commit": git_commit,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         os.makedirs(checkpoint_dir, exist_ok=True)
