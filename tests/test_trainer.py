@@ -53,6 +53,31 @@ def test_forty_steps_halve_loss():
     assert last < first / 2
 
 
+def test_steps_per_epoch_runs_across_passes():
+    class Recording(PairDataset):
+        def __init__(self, pairs):
+            super().__init__(pairs)
+            self.passes, self.served = [], 0
+
+        def set_epoch(self, epoch):
+            self.passes.append(epoch)
+
+        def __getitem__(self, idx):
+            self.served += 1
+            return super().__getitem__(idx)
+
+    torch.manual_seed(0)
+    tokenizer = make_tiny_tokenizer(tuple(f"tok{i}" for i in range(6)))
+    dataset = Recording([Pair(f"q{i}", f"tok{i}", f"d{i}", f"tok{i}") for i in range(6)])
+    loader = DataLoader(dataset, batch_size=2, collate_fn=PairCollator(tokenizer, 8, 8))
+    trainer = Trainer(ToyTower(len(tokenizer), 8, 8), ToyTower(len(tokenizer), 8, 8), warmup_ratio=0.0)
+    # 3 batches per pass, 2 epochs of 2 steps: one full pass then one batch of the next
+    history = trainer.train(loader, epochs=2, steps_per_epoch=2)
+    assert len(history) == 2
+    assert dataset.passes == [0, 1]
+    assert dataset.served == 8
+
+
 def test_save_load_roundtrip(tmp_path, monkeypatch):
     torch.manual_seed(0)
     vocab_size, emb_dim, out_dim = 64, 16, 32

@@ -43,6 +43,14 @@ def as_chunked(batch: dict) -> dict:
     }
 
 
+def _batches(loader: DataLoader):
+    """Yield batches forever, one pass over the data after another (set_epoch per pass)."""
+    for data_pass in itertools.count():
+        if hasattr(loader.dataset, "set_epoch"):
+            loader.dataset.set_epoch(data_pass)
+        yield from loader
+
+
 class Trainer:
     """Trains the two towers with InfoNCE over every passage in the batch.
 
@@ -176,12 +184,15 @@ class Trainer:
         patience: int | None = None,
         on_best=None,
         on_epoch_end=None,
+        steps_per_epoch: int | None = None,
     ) -> list[dict]:
         """Train for a number of epochs and return one history entry per epoch.
 
         With ``select`` (val -> float, higher is better), ``on_best(entry)`` runs
         when the score improves and training stops after ``patience`` epochs without
         improvement; ``on_epoch_end(history)`` runs after every epoch.
+        ``steps_per_epoch`` makes an epoch that many steps instead of one pass over
+        the data, so validation can run more often than once per pass.
         """
         torch.manual_seed(self.seed)
         self.query_encoder.to(self.device)
@@ -189,24 +200,24 @@ class Trainer:
         self.query_encoder.train()
         self.document_encoder.train()
 
-        total_steps = len(train_loader) * epochs
+        steps = steps_per_epoch or len(train_loader)
+        total_steps = steps * epochs
         optimizer, scheduler, params = self._optimizer_and_scheduler(total_steps)
+        batches = _batches(train_loader)
 
         history: list[dict] = []
         best_score, bad_epochs = None, 0
         for epoch in range(epochs):
-            if hasattr(train_loader.dataset, "set_epoch"):
-                train_loader.dataset.set_epoch(epoch)
             start = time.time()
             step_losses: list[float] = []
-            progress = tqdm(train_loader, desc=f"epoch {epoch + 1}/{epochs}")
+            progress = tqdm(itertools.islice(batches, steps), total=steps, desc=f"epoch {epoch + 1}/{epochs}")
             for step, batch in enumerate(progress):
                 loss_value = self._step(optimizer, params, batch)
                 scheduler.step()
                 step_losses.append(loss_value)
                 progress.set_postfix(loss=f"{loss_value:.6f}")
                 if self.log_every and (step + 1) % self.log_every == 0:
-                    print(f"epoch {epoch + 1} step {step + 1}/{len(train_loader)} loss {loss_value:.6f}")
+                    print(f"epoch {epoch + 1} step {step + 1}/{steps} loss {loss_value:.6f}")
 
             seconds = time.time() - start
             train_loss = sum(step_losses) / len(step_losses) if step_losses else 0.0

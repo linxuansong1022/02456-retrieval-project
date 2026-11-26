@@ -229,12 +229,14 @@ def main(cfg: DictConfig) -> None:
             patience=train_cfg.get("patience", None),
             on_best=lambda entry: save(entry["epoch"], entry["train_loss"], entry["val"]),
             on_epoch_end=on_epoch_end,
+            steps_per_epoch=train_cfg.get("steps_per_epoch", None),
         )
         chosen = next(e for e in reversed(history) if e.get("best"))
         final_train_loss = chosen["train_loss"]
         val = chosen["val"]
     else:
-        history = trainer.train(train_loader, epochs=cfg.train.epochs, val_fn=val_fn, on_epoch_end=on_epoch_end)
+        history = trainer.train(train_loader, epochs=cfg.train.epochs, val_fn=val_fn, on_epoch_end=on_epoch_end,
+                                steps_per_epoch=train_cfg.get("steps_per_epoch", None))
         final_train_loss = history[-1]["train_loss"]
         val = history[-1]["val"]
         save(cfg.train.epochs, final_train_loss, val)
