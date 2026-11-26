@@ -1,5 +1,5 @@
 # The second FiQA run: ModernBERT-base, BM25 hard negatives, a 128-question
-# batch built from micro-batches (gradient cache), tau = 0.05 on cosine scores,
+# batch built from micro-batches (gradient cache), tau = 0.02 on cosine scores,
 # 512-token passages and early stopping on validation nDCG@10.
 #
 #   python train_dpr.py --config-name train_dpr_modernbert \
@@ -17,7 +17,9 @@ tokenizer_name: answerdotai/ModernBERT-base
 
 train:
   unit: questions
-  epochs: 15             # about 10 min each on the A3000, including validation
+  # 10 epochs fit the 4 h budget: the laptop GPU sits at its thermal limit and an
+  # epoch (43 steps plus validation on the full corpus) takes about 16 min.
+  epochs: 10
   batch_size: 128        # questions per optimiser step
   n_hard: 1              # BM25 negatives per question, so 256 passages per step
   hard_pool: 10          # drawn each epoch from the 10 best-ranked non-gold BM25 passages
@@ -27,7 +29,7 @@ train:
   lr: 5e-5
   weight_decay: 0.01
   warmup_ratio: 0.1
-  temperature: 0.05
+  temperature: 0.02      # picked by scripts/temperature_diagnostic.sh over 1.0, 0.05 and 0.02
   normalize: true
   grad_clip: 1.0
   bf16: true
