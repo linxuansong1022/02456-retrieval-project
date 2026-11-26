@@ -26,7 +26,7 @@ await loss.hover({ position: { x: box.width * 0.4, y: box.height * 0.5 } });
 const readout = await page.locator("#loss-readout").textContent();
 await page.locator("#show-lr").check();
 await page.locator("#show-lr").uncheck();
-for (const id of ["#val-metric", "#cmp-metric", "#cmp-split"]) {
+for (const id of ["#val-metric", "#cmp-metric", "#cmp-split", "#val2-metric", "#res-split"]) {
   const buttons = page.locator(`${id} button`);
   for (let i = (await buttons.count()) - 1; i >= 0; i--) await buttons.nth(i).click();
 }

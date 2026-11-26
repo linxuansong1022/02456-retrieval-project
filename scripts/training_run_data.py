@@ -285,7 +285,8 @@ def second(args) -> None:
         "step_losses": {str(epoch): values for epoch, values in sorted(steps.items())},
         "run": {key: run[key] for key in ("n_pairs", "history", "selected_epoch", "wall_clock_seconds", "device",
                                           "git_commit", "created_at")}
-        | {"config": {key: run["config"][key] for key in ("model", "train", "eval", "tokenizer_name")}},
+        | {"config": {key: run["config"][key] for key in ("model", "train", "eval", "tokenizer_name")},
+           "finished": run.get("finished", True)},
         "diag": diag,
         "mining": mining,
         "passage_tokens": passage_tokens,
