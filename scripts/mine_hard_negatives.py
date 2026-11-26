@@ -1,6 +1,6 @@
-"""Mine BM25 hard negatives for the FiQA training questions.
+"""Mine BM25 hard negatives for the training questions of one dataset.
 
-    python scripts/mine_hard_negatives.py --base-path <repo with retrieval_data> --out hard_negatives.json
+    python scripts/mine_hard_negatives.py --dataset fiqa --base-path <repo with retrieval_data> --out hard_negatives.json
 
 Keeps the top --depth BM25 passages (k1 = 0.9, b = 0.4, the Anserini setting BEIR
 reports) that are not gold. The pool leaves out every val/test gold passage, so
@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dataset", default="fiqa", choices=("fiqa", "squad"))
     parser.add_argument("--base-path", default=".")
     parser.add_argument("--depth", type=int, default=30)
     parser.add_argument("--k1", type=float, default=0.9)
@@ -31,7 +32,7 @@ def main() -> None:
     from src.retrievers.bm25 import BM25
 
     start = time.time()
-    corpus = Corpus(dataset_name="fiqa", base_dir=f"{args.base_path}/retrieval_data")
+    corpus = Corpus(dataset_name=args.dataset, base_dir=f"{args.base_path}/retrieval_data")
     held_out = {doc for split in ("val", "test") for query in corpus.queries(split) for doc in query.relevant_document_ids}
     documents = corpus.all_documents
     keep = [i for i, ids in enumerate(documents["document_id"]) if ids[0] not in held_out]
@@ -51,7 +52,8 @@ def main() -> None:
 
     hit_at_1 = sum(rank == 1 for rank in gold_ranks) / len(queries)
     Path(args.out).write_text(json.dumps({
-        "params": {"k1": args.k1, "b": args.b, "depth": args.depth, "pool_passages": pool.num_rows},
+        "params": {"dataset": args.dataset, "k1": args.k1, "b": args.b, "depth": args.depth,
+                   "pool_passages": pool.num_rows},
         "train_bm25_hit_at_1": hit_at_1,
         "seconds": round(time.time() - start, 1),
         "negatives": negatives,
