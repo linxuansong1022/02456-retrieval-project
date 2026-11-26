@@ -418,6 +418,31 @@ python train_dpr.py --config-name train_dpr_modernbert \
   <div class="branch"><div class="bn">feat/training-visualization<span>this page</span></div><div><p>This page and <code>scripts/training_run_data.py</code>, which reads <code>train.log</code> and <code>run.json</code>, runs the baselines and the test-split evaluation, and writes the numbers into the page.</p><p>The second run's code is on this branch too: ModernBERT through <code>AutoModel</code> with an optional shared tower (<code>config/model/modernbert.yaml</code>), the BM25 mining script (<code>scripts/mine_hard_negatives.py</code>), the question-level dataset and micro-batch collator in <code>src/training/pairs.py</code>, the gradient-cache step and early stopping in <code>src/training/trainer.py</code>, nDCG in <code>src/evaluation/metrics.py</code>, and the config <code>config/train_dpr_modernbert.yaml</code>. The run trained from e533607, the commit that adds the run config. <code>train_dpr.py</code> now records the commit once at the start of a run.</p></div></div>
 </section>
 
+<section id="squad">
+  <div class="sec-head"><span class="sec-num">11</span><h2>The same recipe on SQuAD</h2></div>
+  <p class="sub">The repo's second dataset, trained and scored the same way as the second FiQA run.</p>
+  <p class="status" id="squad-status"></p>
+
+  <h3>What differs from FiQA</h3>
+  <p id="squad-data-note"></p>
+  <p id="squad-schedule-note"></p>
+
+  <h3>Against TF-IDF and BM25</h3>
+  <figure>
+    <div class="scroll"><table class="t" id="squad-table"></table></div>
+    <figcaption id="squad-caption"></figcaption>
+  </figure>
+  <p id="squad-notes"></p>
+
+  <h3>Commands</h3>
+  <pre class="cmd">python scripts/mine_hard_negatives.py --dataset squad --out out/squad/hard_negatives.json
+python train_dpr.py --config-name train_dpr_modernbert_squad \
+  train.hard_negatives_file=out/squad/hard_negatives.json output_dir=out/squad \
+  2>&1 | tee out/squad/train.log
+python scripts/training_run_data.py evaluate --dataset squad --methods dpr \
+  --checkpoint out/squad/hf_mean --device cuda --out out/squad/eval.json</pre>
+</section>
+
 <footer class="foot">
   <span>Hanan Choudhary Hadayat · 02456 Deep Learning, DTU</span>
   <span>data: train.log, run.json, eval.json, scripts/training_run_data.py</span>
@@ -1171,6 +1196,86 @@ python train_dpr.py --config-name train_dpr_modernbert \
       f4(val(sN, "test", "ndcg", "10")) + " for " + name[sN] + ", recall@20 " + f4(d("recall", "20")) + " against " + f4(val(sR, "test", "recall", "20")) +
       " for " + name[sR] + (beatsAll ? ". Dense retrieval now beats both baselines on both." : ". Not ahead of every baseline yet; see section 08.");
   })();
+})();
+</script>
+<script id="squad-data" type="application/json">{"sizes":{"train_questions":78872,"train_pairs":78713,"val_queries":8727,"test_questions":10570,"passages":20958},"mining":{"params":{"dataset":"squad","k1":0.9,"b":0.4,"depth":30,"pool_passages":16962},"train_bm25_hit_at_1":0.6865554315853535},"run":{"n_pairs":78872,"selected_epoch":9,"wall_clock_seconds":11843.555408239365,"finished":true,"git_commit":"2721603728fc6988d8f71e0418cae266a9abedc7","created_at":"2026-11-26T13:00:08.676681+00:00","train":{"unit":"questions","epochs":9,"batch_size":128,"n_hard":1,"hard_pool":10,"hard_negatives_file":"/home/hanan/.cache/dpr-e1063a6/squad-run/hard_negatives.json","chunk_tokens":16384,"chunk_rows":128,"lr":5e-05,"weight_decay":0.01,"warmup_ratio":0.1,"temperature":0.02,"normalize":true,"grad_clip":1.0,"bf16":true,"seed":0,"log_every":10,"query_max_len":64,"passage_max_len":512,"select":"10.ndcg","patience":3,"steps_per_epoch":100},"model":{"tower":"hf","model_name":"answerdotai/ModernBERT-base","pooling_type":"mean","freeze":false,"shared":true},"history":[{"epoch":1,"train_loss":1.4579742616415023,"seconds":1079.8926556110382,"val_seconds":152.62602472305298,"val":{"1":{"recall":0.5309957602841755,"precision":0.5309957602841755,"mrr":0.5309957602841755,"ndcg":0.5309957602841755},"5":{"recall":0.7585653718345365,"precision":0.15171307436692608,"mrr":0.6188056223979184,"ndcg":0.6538274282205122},"10":{"recall":0.8242236736564684,"precision":0.08242236736565772,"mrr":0.6278062880933271,"ndcg":0.6752951549176543},"20":{"recall":0.875214850464077,"precision":0.04376074252320987,"mrr":0.6313846138385649,"ndcg":0.6882370588336747}}},{"epoch":2,"train_loss":0.43404201313853263,"seconds":1234.6926817893982,"val_seconds":140.3938012123108,"val":{"1":{"recall":0.5683510943050304,"precision":0.5683510943050304,"mrr":0.5683510943050304,"ndcg":0.5683510943050304},"5":{"recall":0.7865245788930904,"precision":0.15730491577863814,"mrr":0.6544536113975734,"ndcg":0.6876467105190487},"10":{"recall":0.8456514266070815,"precision":0.08456514266071952,"mrr":0.6625424471763388,"ndcg":0.7069660308887652},"20":{"recall":0.8937779305603301,"precision":0.044688896528022735,"mrr":0.6659319160996673,"ndcg":0.7191965930741908}}},{"epoch":3,"train_loss":0.37387352854013445,"seconds":1118.1886160373688,"val_seconds":133.17498636245728,"val":{"1":{"recall":0.5898934341698178,"precision":0.5898934341698178,"mrr":0.5898934341698178,"ndcg":0.5898934341698178},"5":{"recall":0.8121920476681563,"precision":0.1624384095336525,"mrr":0.6775677017684536,"ndcg":0.7113800369407322},"10":{"recall":0.8683396356136129,"precision":0.08683396356137318,"mrr":0.6851672696120938,"ndcg":0.7296438195337869},"20":{"recall":0.9164661395668615,"precision":0.04582330697834956,"mrr":0.688548096056072,"ndcg":0.7418630138420086}}},{"epoch":4,"train_loss":0.31972170010209083,"seconds":1092.8936157226562,"val_seconds":127.96860122680664,"val":{"1":{"recall":0.6060501890684084,"precision":0.6060501890684084,"mrr":0.6060501890684084,"ndcg":0.6060501890684084},"5":{"recall":0.8242236736564684,"precision":0.16484473473131545,"mrr":0.6924907375577645,"ndcg":0.7255981594964068},"10":{"recall":0.8784232840609603,"precision":0.08784232840610814,"mrr":0.699841260747066,"ndcg":0.7432423390068831},"20":{"recall":0.9208204423054888,"precision":0.04604102211528097,"mrr":0.702852520264821,"ndcg":0.7540475008299715}}},{"epoch":5,"train_loss":0.2960645207762718,"seconds":1063.8202226161957,"val_seconds":131.95689010620117,"val":{"1":{"recall":0.6159046636874069,"precision":0.6159046636874069,"mrr":0.6159046636874069,"ndcg":0.6159046636874069},"5":{"recall":0.8319009969061533,"precision":0.16638019938125279,"mrr":0.7016099461441443,"ndcg":0.7343806789346948},"10":{"recall":0.8861006073106451,"precision":0.0886100607310768,"mrr":0.7090148526466808,"ndcg":0.7520796401803788},"20":{"recall":0.9289561132118712,"precision":0.046447805660600194,"mrr":0.7121146621376447,"ndcg":0.7630719714414277}}},{"epoch":6,"train_loss":0.28279360599815845,"seconds":1087.7985308170319,"val_seconds":144.588520526886,"val":{"1":{"recall":0.6224361177953478,"precision":0.6224361177953478,"mrr":0.6224361177953478,"ndcg":0.6224361177953478},"5":{"recall":0.840380428555059,"precision":0.1680760857110343,"mrr":0.708811733700006,"ndcg":0.7418791513840609},"10":{"recall":0.8971009510713877,"precision":0.0897100951071513,"mrr":0.7164855102118739,"ndcg":0.7603250535141663},"20":{"recall":0.9337687636071961,"precision":0.04668843818036649,"mrr":0.7191187972430252,"ndcg":0.7697056770524914}}},{"epoch":7,"train_loss":0.15473030935972928,"seconds":1210.1513633728027,"val_seconds":153.6470251083374,"val":{"1":{"recall":0.6335510484702647,"precision":0.6335510484702647,"mrr":0.6335510484702647,"ndcg":0.6335510484702647},"5":{"recall":0.840380428555059,"precision":0.1680760857110343,"mrr":0.7152152324204515,"ndcg":0.7466680060537553},"10":{"recall":0.896069668843818,"precision":0.08960696688439432,"mrr":0.7226848896236971,"ndcg":0.7647134725665247},"20":{"recall":0.9339979374355448,"precision":0.046699896871783934,"mrr":0.7253708396106049,"ndcg":0.7743709535504498}}},{"epoch":8,"train_loss":0.13002900451421737,"seconds":1283.0473802089691,"val_seconds":158.19304537773132,"val":{"1":{"recall":0.629655093388335,"precision":0.629655093388335,"mrr":0.629655093388335,"ndcg":0.629655093388335},"5":{"recall":0.8442763836369886,"precision":0.1688552767274204,"mrr":0.714825636912259,"ndcg":0.7473787612122454},"10":{"recall":0.9003093846682709,"precision":0.09003093846683971,"mrr":0.7223326258046063,"ndcg":0.7655263434742678},"20":{"recall":0.9368626102899049,"precision":0.046843130514501966,"mrr":0.7249323964876409,"ndcg":0.774846434332298}}},{"epoch":9,"train_loss":0.12961546935141086,"seconds":1347.4312868118286,"val_seconds":169.10134887695312,"val":{"1":{"recall":0.633092700813567,"precision":0.633092700813567,"mrr":0.633092700813567,"ndcg":0.633092700813567},"5":{"recall":0.8485160994614415,"precision":0.16970321989231119,"mrr":0.7183778312516648,"ndcg":0.7510917012708683},"10":{"recall":0.8991635155265268,"precision":0.08991635155266528,"mrr":0.7252147595220777,"ndcg":0.7675483943611437},"20":{"recall":0.9360605018906841,"precision":0.046803025094540915,"mrr":0.7279023103250623,"ndcg":0.7770350528278238}}}],"stopped":null},"eval":{"n_passages":20958,"methods":{"bm25":{"params":{"k1":0.9,"b":0.4},"index_seconds":11.4,"total_seconds":50.0,"val":{"n_queries":8727,"scores":{"1":{"recall":0.659906038730377,"precision":0.659906038730377,"mrr":0.659906038730377,"ndcg":0.659906038730377},"5":{"recall":0.8233069783430732,"precision":0.16466139566863638,"mrr":0.7246094496008515,"ndcg":0.7494182089021274},"10":{"recall":0.8709751346396242,"precision":0.08709751346397436,"mrr":0.7309903492354486,"ndcg":0.7648521531242227},"20":{"recall":0.9016844276383637,"precision":0.04508422138192451,"mrr":0.7331708239249208,"ndcg":0.7726773372722601}},"hit":{"1":0.659906038730377,"5":0.8233069783430732,"10":0.8709751346396242,"20":0.9016844276383637}},"test":{"n_queries":10570,"scores":{"1":{"recall":0.697445600756859,"precision":0.697445600756859,"mrr":0.697445600756859,"ndcg":0.697445600756859},"5":{"recall":0.860643330179754,"precision":0.17212866603597696,"mrr":0.7631693472090761,"ndcg":0.7877256280011546},"10":{"recall":0.8986754966887417,"precision":0.08986754966888812,"mrr":0.7683959168656386,"ndcg":0.8001743260881614},"20":{"recall":0.9264900662251656,"precision":0.046324503311265565,"mrr":0.7703600964919127,"ndcg":0.8072493657525689}},"hit":{"1":0.697445600756859,"5":0.860643330179754,"10":0.8986754966887417,"20":0.9264900662251656}}},"bm25-1.5-0.75":{"params":{"k1":1.5,"b":0.75},"index_seconds":14.3,"total_seconds":36.4,"val":{"n_queries":8727,"scores":{"1":{"recall":0.6514266070814713,"precision":0.6514266070814713,"mrr":0.6514266070814713,"ndcg":0.6514266070814713},"5":{"recall":0.8270883465108284,"precision":0.1654176693021876,"mrr":0.7208223520873872,"ndcg":0.7475289182391892},"10":{"recall":0.8694855047553569,"precision":0.08694855047554761,"mrr":0.7265596097497069,"ndcg":0.7613177188429344},"20":{"recall":0.9011114930674917,"precision":0.0450555746533809,"mrr":0.7287980272044716,"ndcg":0.7693673777776411}},"hit":{"1":0.6514266070814713,"5":0.8270883465108284,"10":0.8694855047553569,"20":0.9011114930674917}},"test":{"n_queries":10570,"scores":{"1":{"recall":0.6850520340586566,"precision":0.6850520340586566,"mrr":0.6850520340586566,"ndcg":0.6850520340586566},"5":{"recall":0.8571428571428571,"precision":0.17142857142859744,"mrr":0.7548107852412428,"ndcg":0.7806216192346523},"10":{"recall":0.8965941343424787,"precision":0.08965941343426177,"mrr":0.760233439954344,"ndcg":0.7935375081905701},"20":{"recall":0.9256385998107852,"precision":0.04628192999054654,"mrr":0.7622786020691206,"ndcg":0.8009169488192139}},"hit":{"1":0.6850520340586566,"5":0.8571428571428571,"10":0.8965941343424787,"20":0.9256385998107852}}},"tf-idf":{"params":{},"index_seconds":13.5,"total_seconds":27.6,"val":{"n_queries":8727,"scores":{"1":{"recall":0.24636186547496275,"precision":0.24636186547496275,"mrr":0.24636186547496275,"ndcg":0.24636186547496275},"5":{"recall":0.44345135785493295,"precision":0.08869027157099106,"mrr":0.3182135900080208,"ndcg":0.34932888936914924},"10":{"recall":0.5474962759252894,"precision":0.05474962759253353,"mrr":0.33211766621013833,"ndcg":0.382992669476044},"20":{"recall":0.6521141285665177,"precision":0.03260570642832937,"mrr":0.3394632597261324,"ndcg":0.4095539657874027}},"hit":{"1":0.24636186547496275,"5":0.44345135785493295,"10":0.5474962759252894,"20":0.6521141285665177}},"test":{"n_queries":10570,"scores":{"1":{"recall":0.2750236518448439,"precision":0.2750236518448439,"mrr":0.2750236518448439,"ndcg":0.2750236518448439},"5":{"recall":0.4902554399243141,"precision":0.09805108798487214,"mrr":0.35277357300536155,"ndcg":0.38691437464251893},"10":{"recall":0.5949858088930937,"precision":0.05949858088931641,"mrr":0.3667474583652456,"ndcg":0.4207809213195211},"20":{"recall":0.7048249763481551,"precision":0.03524124881741253,"mrr":0.3742885872687784,"ndcg":0.4484527372418232}},"hit":{"1":0.2750236518448439,"5":0.4902554399243141,"10":0.5949858088930937,"20":0.7048249763481551}}},"dpr":{"params":{"checkpoint":"/home/hanan/.cache/dpr-e1063a6/squad-run/full/hf_mean","device":"cuda"},"index_seconds":130.4,"total_seconds":152.1,"val":{"n_queries":8727,"scores":{"1":{"recall":0.633092700813567,"precision":0.633092700813567,"mrr":0.633092700813567,"ndcg":0.633092700813567},"5":{"recall":0.8485160994614415,"precision":0.16970321989231119,"mrr":0.7183778312516648,"ndcg":0.7510917012708683},"10":{"recall":0.8991635155265268,"precision":0.08991635155266528,"mrr":0.7252147595220777,"ndcg":0.7675483943611437},"20":{"recall":0.9360605018906841,"precision":0.046803025094540915,"mrr":0.7279023103250623,"ndcg":0.7770350528278238}},"hit":{"1":0.633092700813567,"5":0.8485160994614415,"10":0.8991635155265268,"20":0.9360605018906841}},"test":{"n_queries":10570,"scores":{"1":{"recall":0.6339640491958373,"precision":0.6339640491958373,"mrr":0.6339640491958373,"ndcg":0.6339640491958373},"5":{"recall":0.8587511825922421,"precision":0.17175023651847451,"mrr":0.7238174077577966,"ndcg":0.7577835854517535},"10":{"recall":0.907852412488174,"precision":0.09078524124883157,"mrr":0.730583074289312,"ndcg":0.7738768568002321},"20":{"recall":0.9420056764427626,"precision":0.047100283822145594,"mrr":0.7329997324120237,"ndcg":0.7825710608973944}},"hit":{"1":0.6339640491958373,"5":0.8587511825922421,"10":0.907852412488174,"20":0.9420056764427626}}}}}}</script>
+<script>
+(function () {
+  "use strict";
+  const S = JSON.parse(document.getElementById("squad-data").textContent);
+  const R2 = JSON.parse(document.getElementById("run2-data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const f4 = (v) => v.toFixed(4);
+  const int = (v) => v.toLocaleString("en-US");
+  const pct = (v) => (100 * v).toFixed(1) + "%";
+  function duration(seconds) {
+    const m = Math.floor(seconds / 60);
+    return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m + " min";
+  }
+  if (!S) {
+    $("squad-status").innerHTML = '<span class="dot live"></span>The SQuAD run has not been written into this page yet.';
+    return;
+  }
+  const run = S.run, tr = run.train, z = S.sizes, M = S.eval.methods;
+  const rounds = run.history.length, sel = run.selected_epoch;
+
+  const end = run.created_at.slice(0, 16).replace("T", " ") + " UTC after " + duration(run.wall_clock_seconds) + ", " + rounds + " of " + tr.epochs + " validation rounds";
+  $("squad-status").innerHTML = (run.finished ? '<span class="dot done"></span>Finished ' + end + ". "
+    : run.stopped ? '<span class="dot done"></span>Stopped by hand ' + end + ": " + run.stopped + " "
+    : '<span class="dot live"></span>Still training at ' + end + ". ") +
+    "Kept the round " + sel + " weights, the best on validation nDCG@10.";
+
+  $("squad-data-note").innerHTML = "SQuAD questions were written by crowd workers about Wikipedia paragraphs, so each has exactly one gold paragraph, which it shares with a few other questions. " +
+    "<code>Corpus(dataset_name=\"squad\")</code> uses SQuAD's own validation split as the test split and holds out every tenth article title of its training split for validation. " +
+    "That leaves " + int(z.train_questions) + " training questions (" + int(z.train_pairs) + " question and passage pairs after positive expansion and removing repeats), " +
+    int(z.val_queries) + " validation queries and " + int(z.test_questions) + " test questions, searched against " + int(z.passages) +
+    " passages: every paragraph that is gold for some question in any split. " +
+    (R2 ? "FiQA has " + int(R2.run.n_pairs) + " training questions and " + int(R2.eval.n_passages) + " passages, so SQuAD has about " +
+      Math.round(z.train_questions / R2.run.n_pairs) + " times the training questions on a corpus of similar size. " : "") +
+    "BM25 (k1 = " + S.mining.params.k1 + ", b = " + S.mining.params.b + ") puts a gold passage first for " + pct(S.mining.train_bm25_hit_at_1) +
+    " of SQuAD training questions" + (R2 && R2.mining ? ", against " + pct(R2.mining.train_bm25_hit_at_1) + " on FiQA" : "") +
+    ": the questions reuse the paragraph's words, which favours lexical matching.";
+
+  const perPass = Math.ceil(run.n_pairs / tr.batch_size);
+  $("squad-schedule-note").innerHTML = "Everything else is the FiQA recipe: " + run.model.model_name + " as one shared network with " + run.model.pooling_type +
+    " pooling, " + tr.n_hard + " BM25 negative per question drawn from the top " + tr.hard_pool + ", " + tr.batch_size + " questions per step with the gradient cache, " +
+    "τ = " + tr.temperature + ", " + tr.passage_max_len + "-token passages, lr " + tr.lr.toExponential(0).replace("+", "") + ". " +
+    "One change is forced by size: a pass over the training questions is " + perPass + " steps here against " + (R2 ? R2.steps_per_epoch : 43) +
+    " on FiQA, and a few passes would not fit the time budget. So validation runs every " + tr.steps_per_epoch + " steps instead of once per pass (<code>train.steps_per_epoch</code>), " +
+    "and early stopping (patience " + tr.patience + ") counts those rounds. " + tr.epochs + " rounds are " + int(tr.epochs * tr.steps_per_epoch) + " steps, about " +
+    (tr.epochs * tr.steps_per_epoch / perPass).toFixed(1) + " passes. The learning rate decays linearly over those steps.";
+
+  const methods = [["dpr", "DPR, ModernBERT"], ["bm25", "BM25, k1 0.9, b 0.4"], ["bm25-1.5-0.75", "BM25, k1 1.5, b 0.75"], ["tf-idf", "TF-IDF"]].filter(([key]) => M[key]);
+  const cols = [["ndcg", "10", "nDCG@10"], ["recall", "1", "R@1"], ["recall", "5", "R@5"], ["recall", "10", "R@10"], ["recall", "20", "R@20"]];
+  const val = (key, split, mt, k) => M[key][split].scores[k][mt];
+  let body = "";
+  for (const split of ["test", "val"]) {
+    const best = cols.map(([mt, k]) => Math.max.apply(null, methods.map(([key]) => val(key, split, mt, k))));
+    body += methods.map(([key, label], i) => "<tr" + (key === "dpr" ? ' class="hi"' : "") + "><td>" + (i ? "" : split + " (" + int(M[key][split].n_queries) + ")") +
+      "</td><td>" + label + "</td>" + cols.map(([mt, k], c) => { const v = val(key, split, mt, k); return '<td class="m' + (v === best[c] ? " best" : "") + '">' + f4(v) + "</td>"; }).join("") +
+      "</tr>").join("");
+  }
+  $("squad-table").innerHTML = "<thead><tr><th>Split</th><th>Method</th>" + cols.map((c) => '<th class="m">' + c[2] + "</th>").join("") + "</tr></thead><tbody>" + body + "</tbody>";
+  $("squad-caption").innerHTML = "<b>Fig 11</b> · SQuAD, " + int(S.eval.n_passages) + " passages, every method through <code>scripts/training_run_data.py evaluate --dataset squad</code> and the same metric code as the FiQA tables. " +
+    "With one gold passage per question, R@k is the share of questions with the gold passage in the top k. Best per column and split in green.";
+
+  const curve = "Validation nDCG@10 by round of " + tr.steps_per_epoch + " steps: " +
+    run.history.map((e) => (e.epoch === sel ? "<b>" + f4(e.val["10"].ndcg) + "</b>" : f4(e.val["10"].ndcg))).join(", ") +
+    ", against " + f4(val("bm25", "val", "ndcg", "10")) + " for BM25 (0.9/0.4). ";
+  if (!M.dpr) { $("squad-notes").innerHTML = curve; return; }
+  const lex = ["bm25", "bm25-1.5-0.75", "tf-idf"].filter((key) => M[key]);
+  const name = { "bm25": "BM25 (0.9/0.4)", "bm25-1.5-0.75": "BM25 (1.5/0.75)", "tf-idf": "TF-IDF" };
+  const strongest = (mt, k) => lex.reduce((a, b) => (val(a, "test", mt, k) >= val(b, "test", mt, k) ? a : b));
+  const sN = strongest("ndcg", "10"), sR = strongest("recall", "20");
+  const d = (mt, k) => val("dpr", "test", mt, k);
+  const beats = lex.every((key) => cols.every(([mt, k]) => d(mt, k) > val(key, "test", mt, k)));
+  const beatsHead = lex.every((key) => d("ndcg", "10") > val(key, "test", "ndcg", "10"));
+  $("squad-notes").innerHTML = curve + "On the test split DPR reaches nDCG@10 " + f4(d("ndcg", "10")) + " against " + f4(val(sN, "test", "ndcg", "10")) + " for the best lexical method, " +
+    name[sN] + ", and R@20 " + f4(d("recall", "20")) + " against " + f4(val(sR, "test", "recall", "20")) + " (" + name[sR] + "). " +
+    (beats ? "So on SQuAD too the dense model beats TF-IDF and both BM25 settings in every column."
+      : beatsHead ? "So it is ahead on nDCG@10 but not in every column."
+      : "So on SQuAD the dense model does not beat the best lexical baseline on nDCG@10. It is ahead of TF-IDF and both BM25 settings only at " +
+        (cols.filter(([mt, k]) => lex.every((key) => d(mt, k) > val(key, "test", mt, k))).map((c) => c[2]).join(" and ") || "no cut-off") + ".");
 })();
 </script>
 </body>
