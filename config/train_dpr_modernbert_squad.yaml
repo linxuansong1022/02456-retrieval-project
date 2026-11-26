@@ -1,0 +1,11 @@
+# python train_dpr.py --config-name train_dpr_modernbert_squad train.hard_negatives_file=<hard_negatives.json> output_dir=<dir>
+# The FiQA recipe on SQuAD. One pass is 617 steps of 128 questions, so validation runs
+# every 100 steps instead of once per pass, and 9 rounds fit the 4 h budget.
+defaults:
+  - train_dpr_modernbert
+  - override dataset: squad
+  - _self_
+
+train:
+  epochs: 9
+  steps_per_epoch: 100

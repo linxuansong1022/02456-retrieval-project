@@ -1,10 +1,9 @@
 # python train_dpr.py --config-name train_dpr_modernbert train.hard_negatives_file=<hard_negatives.json> output_dir=<dir>
+# add dataset=squad for SQuAD, or use train_dpr_modernbert_squad for its step schedule
 defaults:
+  - dataset: fiqa
   - _self_
   - model: modernbert
-
-dataset:
-  name: fiqa
 
 device: auto
 base_path: "."
