@@ -6,6 +6,20 @@ from src.evaluation.metrics import Evaluate
 from src.retrievers.bm25 import BM25
 from src.retrievers.dpr import DPR
 
+# Hydra 1.3 passes a non-str help value that Python 3.14's argparse rejects.
+import argparse
+
+if hasattr(argparse.ArgumentParser, "_check_help") and not hasattr(argparse.ArgumentParser, "_hydra_py314_shim"):
+    _original_check_help = argparse.ArgumentParser._check_help
+
+    def _check_help(self, action):
+        if not isinstance(action.help, str):
+            return
+        _original_check_help(self, action)
+
+    argparse.ArgumentParser._check_help = _check_help
+    argparse.ArgumentParser._hydra_py314_shim = True
+
 @hydra.main(config_path='config', config_name='fiqa_experiment.yaml', version_base=None)
 def main(cfg):
     ### Load a dataset
