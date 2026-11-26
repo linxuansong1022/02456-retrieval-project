@@ -404,7 +404,7 @@ python train_dpr.py --config-name train_dpr_modernbert \
   <div class="sec-head"><span class="sec-num">09</span><h2>The first run itself</h2></div>
   <p class="sub">Hardware, time and the exact configuration, taken from <code>run.json</code> where the run wrote one.</p>
   <div class="facts" id="run-facts"></div>
-  <p>The run was started with the command from <code>scripts/train_local.sh</code>, plus an <code>output_dir</code> outside the repo:</p>
+  <p>The run was started with this command, plus an <code>output_dir</code> outside the repo:</p>
   <pre class="cmd">python train_dpr.py model=hf_encoder train.epochs=3 train.batch_size=16 train.lr=2e-5 device=cuda</pre>
   <p>Two trainable BERT-base towers only fit in 6 GB at batch 16 because <code>HFEncoder</code> turns on gradient checkpointing. That trades memory for recomputing the forward activations during the backward pass, so every step costs roughly one extra forward pass.</p>
   <div class="scroll"><table class="t" id="config-table"></table></div>
