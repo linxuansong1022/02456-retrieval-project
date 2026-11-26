@@ -1,0 +1,54 @@
+# The second FiQA run: ModernBERT-base, BM25 hard negatives, a 128-question
+# batch built from micro-batches (gradient cache), tau = 0.02 on cosine scores,
+# 512-token passages and early stopping on validation nDCG@10.
+#
+#   python train_dpr.py --config-name train_dpr_modernbert \
+#       train.hard_negatives_file=<hard_negatives.json> output_dir=<dir>
+defaults:
+  - _self_
+  - model: modernbert
+
+dataset:
+  name: fiqa
+
+device: auto
+base_path: "."
+tokenizer_name: answerdotai/ModernBERT-base
+
+train:
+  unit: questions
+  # 7 epochs fit the 4 h budget: the laptop GPU sits at its thermal limit (SW
+  # thermal slowdown, 200 to 500 MHz) and an epoch, 43 steps plus validation on
+  # the full corpus, takes about 20 min.
+  epochs: 7
+  batch_size: 128        # questions per optimiser step
+  n_hard: 1              # BM25 negatives per question, so 256 passages per step
+  hard_pool: 10          # drawn each epoch from the 10 best-ranked non-gold BM25 passages
+  hard_negatives_file: null
+  chunk_tokens: 16384    # micro-batch size in padded tokens (32 passages of 512)
+  chunk_rows: 128
+  lr: 5e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  temperature: 0.02      # picked by scripts/temperature_diagnostic.sh over 1.0, 0.05 and 0.02
+  normalize: true
+  grad_clip: 1.0
+  bf16: true
+  seed: 0
+  log_every: 10
+  query_max_len: 64
+  passage_max_len: 512
+  select: 10.ndcg
+  patience: 3
+
+eval:
+  k: [1, 5, 10, 20]
+  batch_size: 128
+
+overfit: 0
+limit_pairs: 0
+output_dir: checkpoints
+
+hydra:
+  run:
+    dir: ${output_dir}/.hydra

@@ -1,6 +1,7 @@
 """The DPR training loop, evaluation, checkpointing and a 64-pair overfit check."""
 from __future__ import annotations
 
+import contextlib
 import datetime
 import itertools
 import json
@@ -27,7 +28,28 @@ def _git_commit() -> str | None:
         return None
 
 
+def as_chunked(batch: dict) -> dict:
+    """Turn a PairCollator batch (one padded tensor per side) into the micro-batch form."""
+    if "queries" in batch:
+        return batch
+    n = batch["query_input_ids"].shape[0]
+    index = torch.arange(n)
+    return {
+        "queries": [(batch["query_input_ids"], batch["query_attention_mask"], index)],
+        "passages": [(batch["document_input_ids"], batch["document_attention_mask"], index)],
+        "n_queries": n,
+        "n_passages": n,
+        "ignore": None,
+    }
+
+
 class Trainer:
+    """Trains the two towers with InfoNCE over every passage in the batch.
+
+    The step uses a gradient cache (Gao et al., 2021), so only one micro-batch of
+    activations is alive at a time.
+    """
+
     def __init__(
         self,
         query_encoder,
@@ -41,6 +63,7 @@ class Trainer:
         warmup_ratio: float = 0.1,
         log_every: int = 50,
         seed: int = 0,
+        bf16: bool = False,
     ):
         self.query_encoder = query_encoder
         self.document_encoder = document_encoder
@@ -53,6 +76,7 @@ class Trainer:
         self.warmup_ratio = warmup_ratio
         self.log_every = log_every
         self.seed = seed
+        self.bf16 = bf16 and str(device).startswith("cuda")
         self.criterion = DPRLoss(temperature=temperature, normalize=normalize)
         self.tokenizer = None
         self.query_max_len = 64
@@ -63,8 +87,22 @@ class Trainer:
         self.query_max_len = query_max_len
         self.passage_max_len = passage_max_len
 
+    @property
+    def shared(self) -> bool:
+        return self.query_encoder is self.document_encoder
+
+    def _autocast(self):
+        if self.bf16:
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        return contextlib.nullcontext()
+
+    def _parameters(self) -> list:
+        # A shared tower would otherwise appear twice in the optimiser.
+        unique = {id(p): p for p in itertools.chain(self.query_encoder.parameters(), self.document_encoder.parameters())}
+        return list(unique.values())
+
     def _optimizer_and_scheduler(self, total_steps: int):
-        params = list(self.query_encoder.parameters()) + list(self.document_encoder.parameters())
+        params = self._parameters()
         optimizer = torch.optim.AdamW(params, lr=self.lr, weight_decay=self.weight_decay)
         warmup_steps = int(total_steps * self.warmup_ratio)
         scheduler = get_linear_schedule_with_warmup(
@@ -74,19 +112,55 @@ class Trainer:
         )
         return optimizer, scheduler, params
 
-    def _step(self, optimizer, params, batch) -> float:
-        query_ids = batch["query_input_ids"].to(self.device)
-        query_mask = batch["query_attention_mask"].to(self.device)
-        document_ids = batch["document_input_ids"].to(self.device)
-        document_mask = batch["document_attention_mask"].to(self.device)
+    def _rng_state(self):
+        cuda = torch.cuda.get_rng_state() if str(self.device).startswith("cuda") else None
+        return torch.get_rng_state(), cuda
 
+    def _set_rng_state(self, state) -> None:
+        torch.set_rng_state(state[0])
+        if state[1] is not None:
+            torch.cuda.set_rng_state(state[1])
+
+    def _embed_without_graph(self, encoder, chunks, n: int):
+        """Embed each micro-batch, keeping the RNG state so the replay matches (dropout)."""
+        out, states = None, []
+        with torch.no_grad():
+            for ids, mask, index in chunks:
+                states.append(self._rng_state())
+                with self._autocast():
+                    reps = encoder(ids.to(self.device), mask.to(self.device)).float()
+                if out is None:
+                    out = torch.empty(n, reps.shape[1], device=reps.device)
+                out[index.to(reps.device)] = reps
+        return out, states
+
+    def _replay(self, encoder, chunks, states, grads) -> None:
+        for (ids, mask, index), state in zip(chunks, states):
+            self._set_rng_state(state)
+            with self._autocast():
+                reps = encoder(ids.to(self.device), mask.to(self.device)).float()
+            reps.backward(grads[index.to(grads.device)])
+
+    def _step(self, optimizer, params, batch) -> float:
+        batch = as_chunked(batch)
         optimizer.zero_grad()
-        query_emb = self.query_encoder(query_ids, query_mask)
-        document_emb = self.document_encoder(document_ids, document_mask)
-        loss = self.criterion(query_emb, document_emb)
+        query_emb, query_states = self._embed_without_graph(self.query_encoder, batch["queries"], batch["n_queries"])
+        document_emb, document_states = self._embed_without_graph(
+            self.document_encoder, batch["passages"], batch["n_passages"]
+        )
+        query_emb.requires_grad_(True)
+        document_emb.requires_grad_(True)
+        ignore = batch["ignore"].to(query_emb.device) if batch["ignore"] is not None else None
+        loss = self.criterion(query_emb, document_emb, ignore)
         if not torch.isfinite(loss):
             raise RuntimeError(f"non-finite loss: {loss.item()}")
         loss.backward()
+
+        rng = self._rng_state()
+        self._replay(self.query_encoder, batch["queries"], query_states, query_emb.grad)
+        self._replay(self.document_encoder, batch["passages"], document_states, document_emb.grad)
+        self._set_rng_state(rng)
+
         if self.grad_clip is not None and self.grad_clip > 0:
             nn.utils.clip_grad_norm_(params, self.grad_clip)
         optimizer.step()
@@ -98,8 +172,17 @@ class Trainer:
         epochs: int,
         val_fn=None,
         val_loader=None,
+        select=None,
+        patience: int | None = None,
+        on_best=None,
+        on_epoch_end=None,
     ) -> list[dict]:
-        """Train for a number of epochs and return one history entry per epoch."""
+        """Train for a number of epochs and return one history entry per epoch.
+
+        With ``select`` (val -> float, higher is better), ``on_best(entry)`` runs
+        when the score improves and training stops after ``patience`` epochs without
+        improvement; ``on_epoch_end(history)`` runs after every epoch.
+        """
         torch.manual_seed(self.seed)
         self.query_encoder.to(self.device)
         self.document_encoder.to(self.device)
@@ -110,7 +193,10 @@ class Trainer:
         optimizer, scheduler, params = self._optimizer_and_scheduler(total_steps)
 
         history: list[dict] = []
+        best_score, bad_epochs = None, 0
         for epoch in range(epochs):
+            if hasattr(train_loader.dataset, "set_epoch"):
+                train_loader.dataset.set_epoch(epoch)
             start = time.time()
             step_losses: list[float] = []
             progress = tqdm(train_loader, desc=f"epoch {epoch + 1}/{epochs}")
@@ -131,21 +217,41 @@ class Trainer:
                 optimizer.zero_grad(set_to_none=True)
                 self.query_encoder.eval()
                 self.document_encoder.eval()
+                val_start = time.time()
                 val = val_fn()
+                val_seconds = time.time() - val_start
                 self.query_encoder.train()
                 self.document_encoder.train()
             else:
-                val = None
+                val, val_seconds = None, 0.0
 
-            history.append(
-                {
-                    "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "losses_tail": losses_tail,
-                    "seconds": seconds,
-                    "val": val,
-                }
-            )
+            entry = {
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "losses_tail": losses_tail,
+                "seconds": seconds,
+                "val_seconds": val_seconds,
+                "val": val,
+            }
+            stop = False
+            if select is not None and val is not None:
+                score = select(val)
+                entry["selected"] = score
+                if best_score is None or score > best_score:
+                    best_score, bad_epochs = score, 0
+                    entry["best"] = True
+                    if on_best is not None:
+                        on_best(entry)
+                else:
+                    bad_epochs += 1
+                    stop = patience is not None and bad_epochs >= patience
+            history.append(entry)
+            print(f"epoch {epoch + 1} summary {json.dumps(entry)}", flush=True)
+            if on_epoch_end is not None:
+                on_epoch_end(history)
+            if stop:
+                print(f"early stop after epoch {epoch + 1}: no improvement for {patience} epochs")
+                break
         return history
 
     def fit_overfit(self, loader: DataLoader, steps: int) -> tuple[float, float]:
@@ -169,7 +275,7 @@ class Trainer:
         return first_loss, last_loss
 
     def evaluate(self, queries, documents, k: tuple = (1, 5, 10, 20), batch_size: int = 128) -> dict:
-        """Score val queries the same way main.py does: DPR retriever, then Evaluate at each k."""
+        """Score the queries with the DPR retriever and Evaluate at each k."""
         if self.tokenizer is None:
             raise RuntimeError("tokenizer not set; call set_tokenizer before evaluate")
 
@@ -179,14 +285,16 @@ class Trainer:
         return {kk: Evaluate([row[:kk] for row in relevancies], queries, k=kk) for kk in k}
 
     def save_checkpoint(self, dir: str, meta: dict | None = None) -> str:
-        """Save both encoders, the tokenizer and a meta.json describing them."""
+        """Save both encoders (one file when they are shared), the tokenizer and a meta.json."""
         os.makedirs(dir, exist_ok=True)
         torch.save(self.query_encoder.state_dict(), os.path.join(dir, "query_encoder.pt"))
-        torch.save(self.document_encoder.state_dict(), os.path.join(dir, "document_encoder.pt"))
+        if not self.shared:
+            torch.save(self.document_encoder.state_dict(), os.path.join(dir, "document_encoder.pt"))
         if self.tokenizer is not None:
             self.tokenizer.save_pretrained(os.path.join(dir, "tokenizer"))
 
         meta = dict(meta or {})
+        meta["shared_tower"] = self.shared
         meta.setdefault("git_commit", _git_commit())
         meta.setdefault("created_at", datetime.datetime.now(datetime.timezone.utc).isoformat())
         with open(os.path.join(dir, "meta.json"), "w") as f:
