@@ -7,7 +7,11 @@
     # parse train.log and run.json, then write the data block into the page
     python scripts/training_run_data.py page --log train.log --run run.json --eval eval.json --base-path <repo with retrieval_data>
 
-Every number on the page comes from one of those three files.
+    # the same for the second (ModernBERT) run, plus its temperature check and mining stats
+    python scripts/training_run_data.py second --log train.log --run run.json --eval eval.json \
+        --diag <dir with tau-*/hf_*/run.json> --mining hard_negatives.json
+
+Every number on the page comes from one of these files.
 """
 from __future__ import annotations
 
@@ -76,14 +80,14 @@ def evaluate(args) -> None:
                     for query, row, docs in zip(queries, relevancies, retrieved)
                 },
             }
-        results.setdefault("methods", {})[method] = {
+        results.setdefault("methods", {})[args.label or method] = {
             "params": params,
             "index_seconds": round(index_seconds, 1),
             "total_seconds": round(time.time() - start, 1),
             **scores,
         }
         out.write_text(json.dumps(results, indent=2))
-        print(method, json.dumps({split: scores[split]["scores"] for split in SPLITS}))
+        print(args.label or method, json.dumps({split: scores[split]["scores"] for split in SPLITS}))
 
 
 # tqdm prints each step twice: once from set_postfix with the new loss, once from
@@ -213,6 +217,90 @@ def page(args) -> None:
     print(f"steps parsed per epoch: {done}; run.json: {'yes' if run else 'no'}; eval: {'yes' if evaluation else 'no'}")
 
 
+RUN2_OPEN = '<script id="run2-data" type="application/json">'
+
+
+def _scores_only(method: dict) -> dict:
+    return {key: value for key, value in method.items() if key not in SPLITS} | {
+        split: {key: value for key, value in method[split].items() if key != "per_query"} for split in SPLITS
+    }
+
+
+def steps_of(log: Path) -> list[float]:
+    if not log.exists():
+        return []
+    return [value for values in parse_step_losses(log.read_text(errors="replace")).values() for value in values]
+
+
+def second(args) -> None:
+    """Write the data block for the second run (section 08 of the page)."""
+    log_text = Path(args.log).read_text(errors="replace")
+    steps = parse_step_losses(log_text)
+    run = json.loads(Path(args.run).read_text())
+    for entry in run["history"]:
+        logged = steps.get(entry["epoch"], [])
+        mean = sum(logged) / len(logged)
+        if abs(mean - entry["train_loss"]) > 1e-5:
+            raise SystemExit(f"epoch {entry['epoch']}: parsed mean {mean:.6f}, run.json says {entry['train_loss']:.6f}")
+
+    diag = []
+    for path in sorted(Path(args.diag).glob("tau-*/hf_*/run.json")) if args.diag else []:
+        d = json.loads(path.read_text())
+        last = d["history"][-1]
+        diag.append({
+            "temperature": d["config"]["train"]["temperature"],
+            "questions": d["n_pairs"],
+            "steps": len(steps_of(path.parents[2] / f"{path.parents[1].name}.log")),
+            "train_loss": last["train_loss"],
+            "losses_tail": last["losses_tail"],
+            "val": last["val"],
+        })
+    diag.sort(key=lambda row: -row["temperature"])
+
+    mining = None
+    if args.mining:
+        m = json.loads(Path(args.mining).read_text())
+        mining = {key: m[key] for key in ("params", "train_bm25_hit_at_1")}
+
+    # Passage lengths in the second run's tokenizer, to show what each truncation length cuts.
+    from src.data_utils.corpus import Corpus
+    from transformers import AutoTokenizer
+
+    corpus = Corpus(dataset_name="fiqa", base_dir=f"{args.base_path}/retrieval_data")
+    tokenizer = AutoTokenizer.from_pretrained(run["config"]["tokenizer_name"])
+    lengths = sorted(len(ids) for ids in tokenizer([texts[0] for texts in corpus.all_documents["text"]])["input_ids"])
+    passage_tokens = {
+        "tokenizer": run["config"]["tokenizer_name"],
+        "mean": sum(lengths) / len(lengths),
+        "median": lengths[len(lengths) // 2],
+        "p95": lengths[int(0.95 * (len(lengths) - 1))],
+        "max": lengths[-1],
+        "over_256": sum(n > 256 for n in lengths) / len(lengths),
+        "over_512": sum(n > 512 for n in lengths) / len(lengths),
+    }
+
+    evaluation = json.loads(Path(args.eval).read_text())
+    data = {
+        "steps_per_epoch": int(re.search(r"epoch \d+/\d+:.*?\| *\d+/(\d+) \[", log_text).group(1)),
+        "step_losses": {str(epoch): values for epoch, values in sorted(steps.items())},
+        "run": {key: run[key] for key in ("n_pairs", "history", "selected_epoch", "wall_clock_seconds", "device",
+                                          "git_commit", "created_at")}
+        | {"config": {key: run["config"][key] for key in ("model", "train", "eval", "tokenizer_name")}},
+        "diag": diag,
+        "mining": mining,
+        "passage_tokens": passage_tokens,
+        "eval": {"n_passages": evaluation["n_passages"],
+                 "methods": {name: _scores_only(method) for name, method in evaluation["methods"].items()}},
+    }
+    html = PAGE.read_text()
+    start = html.index(RUN2_OPEN) + len(RUN2_OPEN)
+    end = html.index(DATA_CLOSE, start)
+    blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
+    PAGE.write_text(html[:start] + blob + html[end:])
+    print(f"second run: {len(run['history'])} epochs, {sum(map(len, steps.values()))} steps, "
+          f"{len(diag)} diagnostic runs, methods {sorted(evaluation['methods'])}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -222,8 +310,9 @@ def main() -> None:
     ev.add_argument("--base-path", default=".")
     ev.add_argument("--checkpoint")
     ev.add_argument("--device", default="cpu")
-    ev.add_argument("--k1", type=float, default=1.5)
-    ev.add_argument("--b", type=float, default=0.75)
+    ev.add_argument("--k1", type=float, default=0.9)
+    ev.add_argument("--b", type=float, default=0.4)
+    ev.add_argument("--label", help="key to store the scores under, default the method name (one method only)")
     ev.add_argument("--out", required=True)
 
     pg = sub.add_parser("page")
@@ -232,8 +321,16 @@ def main() -> None:
     pg.add_argument("--eval")
     pg.add_argument("--base-path", default=".")
 
+    sc = sub.add_parser("second")
+    sc.add_argument("--log", required=True)
+    sc.add_argument("--run", required=True)
+    sc.add_argument("--eval", required=True)
+    sc.add_argument("--diag")
+    sc.add_argument("--mining")
+    sc.add_argument("--base-path", default=".")
+
     args = parser.parse_args()
-    evaluate(args) if args.command == "evaluate" else page(args)
+    {"evaluate": evaluate, "page": page, "second": second}[args.command](args)
 
 
 if __name__ == "__main__":

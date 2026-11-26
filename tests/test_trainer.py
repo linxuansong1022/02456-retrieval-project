@@ -138,3 +138,66 @@ def test_non_finite_loss_raises():
         assert "non-finite" in str(exc)
     else:
         raise AssertionError("expected RuntimeError for non-finite loss")
+
+
+def _examples():
+    from src.training.pairs import Example
+
+    # q0 has two gold passages, d0 and d4; d4 is also q1's hard negative, so it must not count against q0.
+    return [
+        Example("q0", "tok0 tok1", "d0", "tok0", (("d3", "tok3 tok2 tok1"),), frozenset({"d0", "d4"})),
+        Example("q1", "tok1", "d1", "tok1 tok2", (("d4", "tok0 tok0"),), frozenset({"d1"})),
+        Example("q2", "tok2 tok3 tok0", "d2", "tok2", (("d0", "tok0"),), frozenset({"d2"})),
+    ]
+
+
+def _grads(trainer, batch):
+    params = trainer._parameters()
+
+    class Recorder:
+        def zero_grad(self):
+            for p in params:
+                p.grad = None
+
+        def step(self):
+            pass
+
+    trainer._step(Recorder(), params, batch)
+    return [p.grad.clone() for p in params]
+
+
+def test_micro_batches_match_one_big_batch():
+    from src.training.pairs import ContrastiveCollator
+
+    torch.manual_seed(0)
+    tokenizer = make_tiny_tokenizer(tuple(f"tok{i}" for i in range(4)))
+    trainer = Trainer(ToyTower(len(tokenizer), 8, 8), ToyTower(len(tokenizer), 8, 8), temperature=0.1, grad_clip=0)
+    examples = _examples()
+    whole = ContrastiveCollator(tokenizer, 8, 8, chunk_tokens=10_000)(examples)
+    split = ContrastiveCollator(tokenizer, 8, 8, chunk_tokens=3, chunk_rows=2)(examples)
+    assert len(whole["passages"]) == 1 and len(split["passages"]) > 2
+    # Pool order: d0 d1 d2 (positives), then d3 d4 d0 (negatives). d4 and the second d0 are gold for q0.
+    assert split["ignore"].tolist() == [
+        [False, False, False, False, True, True],
+        [False, False, False, False, False, False],
+        [False, False, False, False, False, False],
+    ]
+
+    # Plain autograd over the full batch as the reference.
+    padded = tokenizer.pad({"input_ids": tokenizer(["tok0 tok1", "tok1", "tok2 tok3 tok0"])["input_ids"]}, return_tensors="pt")
+    passages = ["tok0", "tok1 tok2", "tok2", "tok3 tok2 tok1", "tok0 tok0", "tok0"]
+    padded_p = tokenizer.pad({"input_ids": tokenizer(passages)["input_ids"]}, return_tensors="pt")
+    params = trainer._parameters()
+    for p in params:
+        p.grad = None
+    loss = trainer.criterion(
+        trainer.query_encoder(padded["input_ids"], padded["attention_mask"]),
+        trainer.document_encoder(padded_p["input_ids"], padded_p["attention_mask"]),
+        whole["ignore"],
+    )
+    loss.backward()
+    reference = [p.grad.clone() for p in params]
+
+    for batch in (whole, split):
+        for got, want in zip(_grads(trainer, batch), reference):
+            assert torch.allclose(got, want, atol=1e-6)

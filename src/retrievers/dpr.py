@@ -1,3 +1,5 @@
+import contextlib
+
 import torch
 import torch.nn.functional as F
 
@@ -6,14 +8,23 @@ from src.training.build import load_towers
 
 
 def encode_texts(encoder, tokenizer, texts, max_len, batch_size, device):
-    embeddings = []
-    with torch.no_grad():
-        for start in range(0, len(texts), batch_size):
-            batch = tokenizer(texts[start:start + batch_size], padding=True, truncation=True,
-                              max_length=max_len, return_tensors="pt")
+    """Embed texts in batches of similar length (less padding) and return them in input order.
+
+    On CUDA the forward pass runs under bf16 autocast; the vectors are returned as float32.
+    """
+    input_ids = tokenizer(texts, truncation=True, max_length=max_len)["input_ids"]
+    order = sorted(range(len(texts)), key=lambda i: len(input_ids[i]))
+    autocast = (torch.autocast(device_type="cuda", dtype=torch.bfloat16) if str(device).startswith("cuda")
+                else contextlib.nullcontext())
+    embeddings = [None] * len(texts)
+    with torch.no_grad(), autocast:
+        for start in range(0, len(order), batch_size):
+            rows = order[start:start + batch_size]
+            batch = tokenizer.pad({"input_ids": [input_ids[i] for i in rows]}, padding="longest", return_tensors="pt")
             output = encoder(batch["input_ids"].to(device), batch["attention_mask"].to(device))
-            embeddings.append(F.normalize(output, dim=-1))
-    return torch.cat(embeddings)
+            for row, vector in zip(rows, F.normalize(output.float(), dim=-1)):
+                embeddings[row] = vector
+    return torch.stack(embeddings)
 
 
 class DPR(Retriever):

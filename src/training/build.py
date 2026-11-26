@@ -16,8 +16,11 @@ def build_towers(cfg, tokenizer: PreTrainedTokenizer):
     """Return (query_encoder, document_encoder).
 
     With model.tower == "hf" both towers start from the same pretrained
-    checkpoint and are not tied. With "scratch" they are TransformerEncoder
-    instances built from cfg.model.
+    checkpoint (any AutoModel encoder, e.g. bert-base-uncased or
+    answerdotai/ModernBERT-base) and are not tied, unless model.shared is true,
+    in which case one network encodes both sides and the same object is
+    returned twice. With "scratch" they are TransformerEncoder instances built
+    from cfg.model.
     """
     if cfg.model.tower == "hf":
         query_encoder = HFEncoder(
@@ -25,6 +28,8 @@ def build_towers(cfg, tokenizer: PreTrainedTokenizer):
             pooling_type=cfg.model.pooling_type,
             freeze=cfg.model.freeze,
         )
+        if getattr(cfg.model, "shared", False):
+            return query_encoder, query_encoder
         document_encoder = HFEncoder(
             model_name=cfg.model.model_name,
             pooling_type=cfg.model.pooling_type,
@@ -62,7 +67,6 @@ def load_towers(checkpoint_dir: str, device: str = "cpu"):
         meta = json.load(f)
 
     tokenizer_dir = os.path.join(checkpoint_dir, "tokenizer")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir) if os.path.isdir(tokenizer_dir) else None
 
     # older checkpoints only saved the hf model name and pooling
     model = meta.get("model") or {
@@ -71,8 +75,15 @@ def load_towers(checkpoint_dir: str, device: str = "cpu"):
         "pooling_type": meta.get("pooling_type", "cls"),
         "freeze": False,
     }
+    if os.path.isdir(tokenizer_dir):
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(model["model_name"]) if model.get("tower") == "hf" else None
     query_encoder, document_encoder = build_towers(OmegaConf.create({"model": model}), tokenizer)
 
     query_encoder.load_state_dict(torch.load(os.path.join(checkpoint_dir, "query_encoder.pt"), map_location=device))
-    document_encoder.load_state_dict(torch.load(os.path.join(checkpoint_dir, "document_encoder.pt"), map_location=device))
+    if document_encoder is not query_encoder:
+        document_encoder.load_state_dict(
+            torch.load(os.path.join(checkpoint_dir, "document_encoder.pt"), map_location=device)
+        )
     return query_encoder.to(device).eval(), document_encoder.to(device).eval(), meta, tokenizer

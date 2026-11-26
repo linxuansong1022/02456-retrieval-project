@@ -1,0 +1,8 @@
+tower: hf
+model_name: answerdotai/ModernBERT-base
+pooling_type: mean  # cls | mean | max
+freeze: false
+# One network encodes questions and passages. Two trainable ModernBERT-base
+# towers need 2 x 149M x 16 bytes (fp32 weights, grads, two Adam moments), about
+# 4.8 GB, before any activations; that does not fit on a 6 GB card.
+shared: true

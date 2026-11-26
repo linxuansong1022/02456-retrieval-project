@@ -1,6 +1,7 @@
 """Build (query, passage) training pairs and collate them into tower inputs."""
 from __future__ import annotations
 
+import random
 from collections import Counter
 from dataclasses import dataclass
 
@@ -123,4 +124,151 @@ class PairCollator:
             "query_attention_mask": queries["attention_mask"].long(),
             "document_input_ids": documents["input_ids"].long(),
             "document_attention_mask": documents["attention_mask"].long(),
+        }
+
+
+@dataclass(frozen=True)
+class Question:
+    """One training question with all its gold passage ids and its mined hard negatives (best first)."""
+
+    query_id: str
+    query_text: str
+    positives: tuple[str, ...]
+    negatives: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Example:
+    """What one question contributes to a batch: a gold passage plus zero or more hard negatives."""
+
+    query_id: str
+    query_text: str
+    positive_id: str
+    positive_text: str
+    negatives: tuple[tuple[str, str], ...]
+    gold_ids: frozenset[str]
+
+
+def passages_from_corpus(corpus: Corpus) -> dict[str, str]:
+    return dict(documents_from_corpus(corpus))
+
+
+def questions_from_corpus(
+    corpus: Corpus, split: str = "train", hard_negatives: dict[str, list[str]] | None = None
+) -> list[Question]:
+    """One Question per row of the split; hard_negatives maps query_id to mined passage ids."""
+    split_ds = getattr(corpus, split)
+    if split_ds is None:
+        raise ValueError(f"split {split!r} is not present in the corpus")
+    hard_negatives = hard_negatives or {}
+    questions = []
+    for query_id, text, document_ids in zip(split_ds["query_id"], split_ds["question"], split_ds["document_id"]):
+        positives = tuple(dict.fromkeys(document_ids))
+        negatives = tuple(doc for doc in hard_negatives.get(query_id, ()) if doc not in positives)
+        questions.append(Question(query_id, text, positives, negatives))
+    return questions
+
+
+class QuestionDataset(Dataset):
+    """One item per question. Each epoch draws one of its gold passages and ``n_hard``
+    negatives from the first ``hard_pool`` mined ones, so a question with several
+    answers shows a different one in different epochs. Call set_epoch before each epoch.
+    """
+
+    def __init__(
+        self,
+        questions: list[Question],
+        passages: dict[str, str],
+        n_hard: int = 0,
+        hard_pool: int = 0,
+        seed: int = 0,
+    ):
+        if n_hard and any(len(q.negatives) < n_hard for q in questions):
+            raise ValueError(f"every question needs at least {n_hard} mined negatives")
+        self.questions = questions
+        self.passages = passages
+        self.n_hard = n_hard
+        self.hard_pool = hard_pool
+        self.seed = seed
+        self.epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return len(self.questions)
+
+    def __getitem__(self, idx: int) -> Example:
+        question = self.questions[idx]
+        rng = random.Random(f"{self.seed}:{self.epoch}:{idx}")
+        positive = rng.choice(question.positives)
+        pool = question.negatives[: self.hard_pool] if self.hard_pool else question.negatives
+        negatives = rng.sample(pool, self.n_hard) if self.n_hard else []
+        return Example(
+            question.query_id,
+            question.query_text,
+            positive,
+            self.passages[positive],
+            tuple((doc, self.passages[doc]) for doc in negatives),
+            frozenset(question.positives),
+        )
+
+
+def chunk_by_tokens(lengths: list[int], max_tokens: int, max_rows: int) -> list[list[int]]:
+    """Group row indices, longest first, so that rows * longest row stays under max_tokens."""
+    order = sorted(range(len(lengths)), key=lambda i: -lengths[i])
+    chunks: list[list[int]] = []
+    for i in order:
+        if chunks and len(chunks[-1]) < max_rows and (len(chunks[-1]) + 1) * lengths[chunks[-1][0]] <= max_tokens:
+            chunks[-1].append(i)
+        else:
+            chunks.append([i])
+    return chunks
+
+
+class ContrastiveCollator:
+    """Tokenize a batch of Examples into length-sorted, padded micro-batches.
+
+    The passage pool is the B gold passages (row i belongs to question i) followed
+    by every hard negative. ``ignore[i, j]`` is True when passage j is gold for
+    question i but is not its row-i positive, so a second answer to the same
+    question never counts as a negative. Micro-batches hold at most
+    ``chunk_tokens`` padded tokens; the trainer embeds them one at a time.
+    """
+
+    def __init__(self, tokenizer, query_max_len: int = 64, passage_max_len: int = 512,
+                 chunk_tokens: int = 8192, chunk_rows: int = 64):
+        self.tokenizer = tokenizer
+        self.query_max_len = query_max_len
+        self.passage_max_len = passage_max_len
+        self.chunk_tokens = chunk_tokens
+        self.chunk_rows = chunk_rows
+
+    def _chunks(self, texts: list[str], max_len: int) -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        encoded = self.tokenizer(texts, truncation=True, max_length=max_len)["input_ids"]
+        chunks = []
+        for rows in chunk_by_tokens([len(ids) for ids in encoded], self.chunk_tokens, self.chunk_rows):
+            padded = self.tokenizer.pad({"input_ids": [encoded[i] for i in rows]}, padding="longest", return_tensors="pt")
+            chunks.append((padded["input_ids"].long(), padded["attention_mask"].long(), torch.tensor(rows)))
+        return chunks
+
+    def __call__(self, batch: list[Example]) -> dict:
+        passage_ids = [example.positive_id for example in batch]
+        passage_texts = [example.positive_text for example in batch]
+        for example in batch:
+            for doc_id, text in example.negatives:
+                passage_ids.append(doc_id)
+                passage_texts.append(text)
+
+        ignore = torch.tensor(
+            [[doc_id in example.gold_ids and j != i for j, doc_id in enumerate(passage_ids)]
+             for i, example in enumerate(batch)],
+            dtype=torch.bool,
+        )
+        return {
+            "queries": self._chunks([example.query_text for example in batch], self.query_max_len),
+            "passages": self._chunks(passage_texts, self.passage_max_len),
+            "n_queries": len(batch),
+            "n_passages": len(passage_ids),
+            "ignore": ignore,
         }
