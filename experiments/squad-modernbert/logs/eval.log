@@ -1,0 +1,3 @@
+/home/hanan/venvs/retrieval/lib64/python3.14/site-packages/transformers/modeling_utils.py:3195: FutureWarning: `gradient_checkpointing_enable` is deprecated and will be removed in v6. Use `activation_checkpointing_enable` instead.
+  warnings.warn(
+dpr {"val": {"1": {"recall": 0.633092700813567, "precision": 0.633092700813567, "mrr": 0.633092700813567, "ndcg": 0.633092700813567}, "5": {"recall": 0.8485160994614415, "precision": 0.16970321989231119, "mrr": 0.7183778312516648, "ndcg": 0.7510917012708683}, "10": {"recall": 0.8991635155265268, "pr

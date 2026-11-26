@@ -1,0 +1,9 @@
+Saved squad dataset to path /home/hanan/.cache/dpr-e1063a6/repo/retrieval_data/squad.
+{'train': 78872, 'val': 8727, 'test': 10570}
+passages 20958
+pairs_from_corpus[train]: rows=78872 pairs_before=78872 pairs_after=78713 repeated_passage_texts=16687
+questions 78872 pairs 78713
+train rows 78872 unique passages 16962
+val rows 8727 unique passages 1929
+test rows 10570 unique passages 2067
+tokens mean 157.35203740814964 median 145 p95 281 max 894 over512 0.0016700066800267202
